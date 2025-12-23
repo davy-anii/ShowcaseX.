@@ -84,7 +84,8 @@ export const SignInScreen = () => {
       // Simulate API call
       await new Promise((resolve) => setTimeout(resolve, 2000));
       console.log('Sign in:', formData);
-      // Handle successful login (e.g., navigate to home screen)
+      // Navigate to Dashboard on successful login
+      navigation.navigate('Dashboard');
     } catch (error) {
       console.error('Sign in error:', error);
     } finally {
@@ -105,6 +106,10 @@ export const SignInScreen = () => {
   useEffect(() => {
     if (formData.preferredLanguage) {
       i18n.changeLanguage(formData.preferredLanguage);
+      // Save language preference
+      import('../i18n/i18n').then(({ saveLanguage }) => {
+        saveLanguage(formData.preferredLanguage);
+      });
     }
   }, [formData.preferredLanguage]);
 

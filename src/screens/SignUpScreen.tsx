@@ -173,6 +173,10 @@ export const SignUpScreen = () => {
   useEffect(() => {
     if (formData.preferredLanguage) {
       i18n.changeLanguage(formData.preferredLanguage);
+      // Save language preference
+      import('../i18n/i18n').then(({ saveLanguage }) => {
+        saveLanguage(formData.preferredLanguage);
+      });
     }
   }, [formData.preferredLanguage]);
 
