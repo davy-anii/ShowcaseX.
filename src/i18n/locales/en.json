@@ -77,7 +77,26 @@
       "temperature": "Temperature",
       "rain": "Rain",
       "humidity": "Humidity",
-      "condition": "Condition"
+      "condition": "Condition",
+      "precipitation": "Precipitation",
+      "hourlyForecast": "Hourly Forecast",
+      "loading": "Loading weather...",
+      "error": "Unable to load weather",
+      "locationError": "Location access denied",
+      "retry": "Retry",
+      "conditions": {
+        "clear": "Clear Sky",
+        "partlyCloudy": "Partly Cloudy",
+        "cloudy": "Cloudy",
+        "foggy": "Foggy",
+        "drizzle": "Drizzle",
+        "rainy": "Rainy",
+        "heavyRain": "Heavy Rain",
+        "snowy": "Snowy",
+        "showers": "Showers",
+        "snowShowers": "Snow Showers",
+        "thunderstorm": "Thunderstorm"
+      }
     },
     "farmSummary": {
       "title": "Farm Summary",
@@ -153,7 +172,15 @@
       "corn": "Corn",
       "potato": "Potato",
       "tomato": "Tomato",
-      "onion": "Onion"
+      "onion": "Onion",
+      "maize": "Maize",
+      "soybean": "Soybean",
+      "chili": "Chili",
+      "banana": "Banana",
+      "mango": "Mango",
+      "tea": "Tea",
+      "coffee": "Coffee",
+      "groundnut": "Groundnut"
     },
     "soilTypes": {
       "alluvial": "Alluvial",
@@ -256,10 +283,25 @@
     "analyzeButton": "Analyze Image",
     "analyzing": "Analyzing...",
     "imageRequired": "Please upload a crop image",
+    "otherCropType": "Specify Crop Type",
+    "otherCropTypePlaceholder": "Enter crop name",
     "cropTypes": {
       "rice": "Rice",
       "wheat": "Wheat",
-      "potato": "Potato"
+      "potato": "Potato",
+      "tomato": "Tomato",
+      "cotton": "Cotton",
+      "sugarcane": "Sugarcane",
+      "maize": "Maize",
+      "soybean": "Soybean",
+      "chili": "Chili",
+      "onion": "Onion",
+      "banana": "Banana",
+      "mango": "Mango",
+      "tea": "Tea",
+      "coffee": "Coffee",
+      "groundnut": "Groundnut",
+      "other": "Other"
     },
     "weatherConditions": {
       "rainy": "Rainy",
@@ -291,7 +333,10 @@
       "low": "Low",
       "medium": "Medium",
       "high": "High"
-    }
+    },
+    "warning": "Warning",
+    "notCropWarning": "This image does not appear to be a crop or plant. Please upload an image of a crop for disease analysis.",
+    "uploadNewImage": "Upload New Image"
   },
   "profile": {
     "title": "My Profile",
@@ -323,7 +368,7 @@
       "title": "Error",
       "message": "Failed to update profile"
     },
-    "logout": {
+    "logoutConfirm": {
       "confirmTitle": "Logout",
       "confirmMessage": "Are you sure you want to logout?",
       "cancel": "Cancel",

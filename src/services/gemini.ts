@@ -22,7 +22,7 @@ const LANGUAGE_NAME: Record<SupportedLanguageCode, string> = {
   bn: 'Bengali',
 };
 
-const DEFAULT_MODEL = 'gemini-2.5-flash';
+const DEFAULT_MODEL = 'gemini-3-flash-preview';
 
 const DEFAULT_VISION_MODEL = 'gemini-3-flash-preview';
 
@@ -332,158 +332,6 @@ If the image is unclear or not a document, still return JSON and ask for a clear
   }
 };
 
-// ============ AUDIO TRANSCRIPTION VIA GEMINI ============
-// This is Method 2: Send audio directly to Gemini instead of using a separate STT API
-// Benefits: 1 API call, no extra rate limits, Gemini understands context better
-
-/**
- * Determine MIME type from audio file URI
- */
-const getAudioMimeType = (uri: string): string => {
-  const ext = (uri.split('.').pop() || '').toLowerCase();
-  switch (ext) {
-    case 'm4a':
-    case 'mp4':
-    case 'aac':
-      return 'audio/mp4';
-    case 'webm':
-      return 'audio/webm';
-    case 'wav':
-      return 'audio/wav';
-    case 'mp3':
-      return 'audio/mpeg';
-    case 'ogg':
-      return 'audio/ogg';
-    case 'flac':
-      return 'audio/flac';
-    default:
-      return 'audio/mp4'; // Default for mobile recordings
-  }
-};
-
-/**
- * 
- * @param audioUri - Local file URI of the recorded audio
- * @param language - Target language for transcription (en, hi, bn)
- * @returns Transcribed text
- */
-export const transcribeAudioWithGemini = async (params: {
-  audioUri: string;
-  language: string;
-}): Promise<string> => {
-  const { audioUri, language } = params;
-
-  const apiKey = getApiKey();
-  if (!apiKey) {
-    throw new Error('Missing Gemini API key. Set GEMINI_API_KEY in .env file.');
-  }
-
-  const langCode = coerceLanguage(language);
-  const languageName = LANGUAGE_NAME[langCode];
-
-  console.log('Transcribing audio with Gemini:', audioUri);
-  console.log('Target language:', languageName);
-
-  // Read audio file as base64
-  const audioBase64 = await FileSystem.readAsStringAsync(audioUri, {
-    encoding: 'base64',
-  });
-
-  const mimeType = getAudioMimeType(audioUri);
-  console.log('Audio MIME type:', mimeType);
-  console.log('Audio base64 length:', audioBase64.length);
-
-  const model = 'gemini-3-flash-preview';
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
-
-  // Build request with audio inline data
-  const requestBody = {
-    contents: [
-      {
-        role: 'user',
-        parts: [
-          {
-            inlineData: {
-              mimeType: mimeType,
-              data: audioBase64,
-            },
-          },
-          {
-            text: `Transcribe this audio. The speaker is likely speaking in ${languageName} (or possibly English, Hindi, or Bengali). 
-            
-            IMPORTANT RULES:
-            1. Return ONLY the exact transcription of what was spoken - no explanations, no quotes, no prefixes like "The speaker said:"
-            2. If the audio is in ${languageName}, transcribe in ${languageName}
-            3. If the audio is unclear or empty, respond with exactly: [NO_SPEECH]
-            4. Keep the transcription natural and conversational
-            5. Do NOT translate - transcribe in the original spoken language
-            
-            Transcription:`,
-          },
-        ],
-      },
-    ],
-    generationConfig: {
-      temperature: 0.1, // Low temperature for accurate transcription
-      maxOutputTokens: 1024,
-    },
-  };
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(requestBody),
-  });
-
-  console.log('Gemini transcription response status:', response.status);
-
-  const json = await response.json().catch(() => ({}));
-
-  if (!response.ok) {
-    const errorMessage = json?.error?.message || `Gemini request failed (${response.status})`;
-    console.error('Gemini transcription error:', json);
-
-    // User-friendly error messages
-    if (errorMessage.toLowerCase().includes('quota') || errorMessage.toLowerCase().includes('rate')) {
-      throw new Error('Too many requests. Please wait a moment and try again.');
-    }
-    if (response.status === 400) {
-      throw new Error('Audio format not supported. Please try again.');
-    }
-
-    throw new Error(errorMessage);
-  }
-
-  // Extract transcription from response
-  const transcription = json?.candidates?.[0]?.content?.parts
-    ?.map((p: { text?: string }) => p.text)
-    .filter(Boolean)
-    .join('')
-    .trim();
-
-  console.log('Raw transcription:', transcription);
-
-  // Check for no speech
-  if (!transcription || transcription === '[NO_SPEECH]' || transcription.includes('[NO_SPEECH]')) {
-    throw new Error('No speech detected. Please speak clearly and try again.');
-  }
-
-  // Clean up any accidental prefixes Gemini might add
-  let cleanTranscription = transcription
-    .replace(/^(transcription:|the speaker said:|audio transcription:)/i, '')
-    .replace(/^["']|["']$/g, '') // Remove surrounding quotes
-    .trim();
-
-  if (!cleanTranscription) {
-    throw new Error('No speech detected. Please speak clearly and try again.');
-  }
-
-  console.log('Clean transcription:', cleanTranscription);
-  return cleanTranscription;
-};
-
 // ============ CROP PREDICTION VIA GEMINI ============
 
 export interface CropPredictionInput {
@@ -505,6 +353,26 @@ export interface CropPredictionResult {
   fertilizerSuggestion: string;
   harvestReadiness: string;
   recommendations: string;
+}
+
+// ============ CROP DISEASE DETECTION VIA GEMINI ============
+
+export interface CropDiseaseInput {
+  imageUri: string;
+  cropType: string;
+  cropAge: string;
+  weather: string;
+}
+
+export interface CropDiseaseResult {
+  diseaseName: string;
+  severity: 'low' | 'medium' | 'high';
+  treatment: string;
+  prevention: string;
+  healthPercentage: number;
+  recoveryChance: 'low' | 'medium' | 'high';
+  isNotCrop?: boolean;
+  warningMessage?: string;
 }
 
 /**
@@ -635,3 +503,190 @@ Consider factors like:
     throw new Error('Failed to parse prediction results. Please try again.');
   }
 };
+
+/**
+ * Detect crop disease from image using Gemini Vision AI
+ * @param input - Crop disease input data including image and context
+ * @param language - Target language for response (en, hi, bn)
+ * @returns Crop disease analysis results
+ */
+export const detectCropDisease = async (params: {
+  input: CropDiseaseInput;
+  language: string;
+}): Promise<CropDiseaseResult> => {
+  const { input, language } = params;
+
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    throw new Error('Missing Gemini API key. Set GEMINI_API_KEY in .env file.');
+  }
+
+  const langCode = coerceLanguage(language);
+  const languageName = LANGUAGE_NAME[langCode];
+  const model = getVisionModel();
+
+  // Convert image to base64
+  const imageBase64 = await fileToBase64(input.imageUri);
+  const mimeType = getImageMimeType(input.imageUri);
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+    model
+  )}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+  // Build detailed prompt for disease detection
+  const prompt = `You are an expert plant pathologist with 20+ years of experience in crop disease diagnosis, specializing in Indian agricultural conditions.
+
+CROP INFORMATION:
+- Crop Type: ${input.cropType || 'Not specified'}
+${input.cropAge ? `- Crop Age: ${input.cropAge} days` : ''}
+- Recent Weather: ${input.weather}
+
+FIRST - IMAGE VALIDATION:
+Before analyzing, determine if the image shows a crop, plant, or any agricultural/farming-related content.
+If the image is NOT related to farming (e.g., person, animal, building, vehicle, food item, random object), respond with:
+{
+  "isNotCrop": true,
+  "warningMessage": "Brief message in ${languageName} explaining this is not a crop/plant image",
+  "diseaseName": "N/A",
+  "severity": "low",
+  "treatment": "N/A",
+  "prevention": "N/A",
+  "healthPercentage": 0,
+  "recoveryChance": "low"
+}
+
+CRITICAL ANALYSIS INSTRUCTIONS (Only if image IS a crop/plant):
+1. CAREFULLY examine the provided crop image for visible symptoms
+2. Look for specific signs: leaf spots, discoloration (yellow, brown, black), wilting, lesions, powdery/fuzzy growth, holes, curling, stunting, or rot
+3. Identify the EXACT disease based on visual symptoms - do NOT guess or generalize
+4. Consider crop-specific diseases common in India:
+   - Rice: Blast, Bacterial Leaf Blight, Sheath Blight, Brown Spot
+   - Wheat: Rust (Yellow/Brown/Black), Powdery Mildew, Leaf Blight
+   - Potato: Late Blight, Early Blight, Black Scurf, Common Scab
+5. Factor in weather conditions: ${input.weather} weather influences fungal, bacterial, and viral diseases
+6. If NO clear disease symptoms are visible, state "Healthy Crop" or "No Disease Detected"
+
+OUTPUT FORMAT - Return ONLY valid JSON (no markdown, no code blocks):
+{
+  "isNotCrop": false,
+  "diseaseName": "Specific disease name in ${languageName} based on actual visual symptoms, or 'Healthy Crop' if no disease",
+  "severity": "low OR medium OR high",
+  "treatment": "Specific treatment with chemical names (e.g., Mancozeb 75% WP @ 2g/L, Copper Oxychloride, Carbendazim) and application method in ${languageName}",
+  "prevention": "Concrete preventive practices: crop rotation, spacing, drainage, resistant varieties, timing in ${languageName}",
+  "healthPercentage": 0-100,
+  "recoveryChance": "low OR medium OR high"
+}
+
+ACCURACY RULES:
+- Base diagnosis ONLY on visible symptoms in the image
+- Match symptoms to known disease patterns
+- Severity: "high" = >50% leaf area affected or critical symptoms; "medium" = 20-50% affected; "low" = <20% affected
+- healthPercentage: Estimate based on visible damage (not affected area ÷ total visible area)
+- recoveryChance: "high" if caught early with good treatment; "medium" if moderate stage; "low" if advanced/systemic
+- Treatment MUST include specific fungicide/pesticide/biocontrol names used in India
+- If image shows healthy crop, return: diseaseName="Healthy Crop", severity="low", healthPercentage=95-100, recoveryChance="high"
+
+Respond in ${languageName}. Return JSON only.`;
+
+  const requestBody = {
+    systemInstruction: {
+      parts: [{
+        text: `You are an expert plant disease diagnostician for Indian farmers. Always respond in ${languageName}. Return JSON only.`
+      }],
+    },
+    contents: [
+      {
+        role: 'user',
+        parts: [
+          {
+            inlineData: {
+              mimeType: mimeType,
+              data: imageBase64,
+            },
+          },
+          { text: prompt },
+        ],
+      },
+    ],
+    generationConfig: {
+      temperature: 0.1, // Very low temperature for maximum accuracy
+      topP: 0.8,
+      topK: 20,
+      maxOutputTokens: 2048,
+    },
+  };
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(requestBody),
+  });
+
+  const json = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const errorMessage = json?.error?.message || `Gemini request failed (${response.status})`;
+    console.error('Gemini disease detection error:', json);
+    throw new Error(errorMessage);
+  }
+
+  const contentText = json?.candidates?.[0]?.content?.parts
+    ?.map((p: { text?: string }) => p.text)
+    .filter(Boolean)
+    .join('')
+    ?.trim();
+
+  if (!contentText) {
+    throw new Error('No response received from Gemini');
+  }
+
+  try {
+    // Extract JSON from response (handle markdown code blocks if present)
+    const jsonMatch = contentText.match(/\{[\s\S]*\}/);
+    const raw = jsonMatch ? jsonMatch[0] : contentText;
+    const parsed = JSON.parse(raw);
+
+    // Check if image is not a crop
+    if (parsed?.isNotCrop === true) {
+      return {
+        diseaseName: 'Not a Crop',
+        severity: 'low',
+        treatment: '',
+        prevention: '',
+        healthPercentage: 0,
+        recoveryChance: 'low',
+        isNotCrop: true,
+        warningMessage: parsed?.warningMessage || 'This image does not appear to be a crop or plant.',
+      };
+    }
+
+    // Validate and sanitize the response
+    const severity = ['low', 'medium', 'high'].includes(parsed?.severity?.toLowerCase()) 
+      ? parsed.severity.toLowerCase() 
+      : 'medium';
+    
+    const recoveryChance = ['low', 'medium', 'high'].includes(parsed?.recoveryChance?.toLowerCase())
+      ? parsed.recoveryChance.toLowerCase()
+      : 'medium';
+    
+    const healthPercentage = typeof parsed?.healthPercentage === 'number' 
+      ? Math.max(0, Math.min(100, parsed.healthPercentage))
+      : 70;
+
+    return {
+      diseaseName: parsed?.diseaseName || 'Disease Detected',
+      severity: severity as 'low' | 'medium' | 'high',
+      treatment: parsed?.treatment || 'Consult with a local agricultural expert for proper treatment.',
+      prevention: parsed?.prevention || 'Maintain good field hygiene and monitor crops regularly.',
+      healthPercentage: healthPercentage,
+      recoveryChance: recoveryChance as 'low' | 'medium' | 'high',
+      isNotCrop: false,
+    };
+  } catch (parseError) {
+    console.error('Error parsing Gemini disease detection response:', parseError);
+    throw new Error('Failed to analyze the crop image. Please try again with a clearer photo.');
+  }
+};
+

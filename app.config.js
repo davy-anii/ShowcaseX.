@@ -5,6 +5,14 @@ require('dotenv').config();
 module.exports = ({ config }) => {
   return {
     ...config,
+    android: {
+      ...(config.android ?? {}),
+      package: 'com.omsohom01.krishaksarthi',
+    },
+    plugins: [
+      ...(config.plugins ?? []),
+      'expo-font',
+    ],
     extra: {
       ...(config.extra ?? {}),
       GEMINI_API_KEY: process.env.GEMINI_API_KEY,

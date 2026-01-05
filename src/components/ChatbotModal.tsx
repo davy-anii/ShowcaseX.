@@ -14,11 +14,9 @@ import {
 // @ts-ignore
 import { Ionicons } from '@expo/vector-icons';
 import * as Speech from 'expo-speech';
-import { Audio } from 'expo-av';
 import { useTranslation } from 'react-i18next';
-import { getGeminiChatResponse, transcribeAudioWithGemini } from '../services/gemini';
+import { getGeminiChatResponse } from '../services/gemini';
 import { FormattedText } from './FormattedText';
-import { transcribeAudioWeb } from '../services/speechToText';
 
 interface ChatMessage {
   id: string;
@@ -47,7 +45,6 @@ export const ChatbotModal: React.FC<ChatbotModalProps> = ({ visible, onClose }) 
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
-  const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
@@ -152,148 +149,16 @@ export const ChatbotModal: React.FC<ChatbotModalProps> = ({ visible, onClose }) 
   };
 
   const startRecording = async () => {
-    try {
-      const permission = await Audio.requestPermissionsAsync();
-
-      if (permission.status !== 'granted') {
-        Alert.alert(
-          t('chatbot.permissions.title') || 'Permission Required',
-          t('chatbot.permissions.microphone') || 'Microphone access is required for voice input.'
-        );
-        return;
-      }
-
-      // Configure audio mode for recording
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-        staysActiveInBackground: false,
-        shouldDuckAndroid: true,
-        playThroughEarpieceAndroid: false,
-      });
-
-      // Create recording with high quality settings
-      const { recording } = await Audio.Recording.createAsync({
-        isMeteringEnabled: true,
-        android: {
-          extension: '.m4a',
-          outputFormat: Audio.AndroidOutputFormat.MPEG_4,
-          audioEncoder: Audio.AndroidAudioEncoder.AAC,
-          sampleRate: 44100,
-          numberOfChannels: 2,
-          bitRate: 128000,
-        },
-        ios: {
-          extension: '.m4a',
-          outputFormat: Audio.IOSOutputFormat.MPEG4AAC,
-          audioQuality: Audio.IOSAudioQuality.HIGH,
-          sampleRate: 44100,
-          numberOfChannels: 2,
-          bitRate: 128000,
-          linearPCMBitDepth: 16,
-          linearPCMIsBigEndian: false,
-          linearPCMIsFloat: false,
-        },
-        web: {
-          mimeType: 'audio/webm',
-          bitsPerSecond: 128000,
-        },
-      });
-
-      setRecording(recording);
-      setIsRecording(true);
-
-      console.log('Recording started successfully');
-    } catch (err) {
-      console.error('Failed to start recording', err);
-      Alert.alert(
-        t('chatbot.error') || 'Error',
-        t('chatbot.recordingError') || 'Failed to start recording. Please try again.'
-      );
-    }
+    // Voice input temporarily disabled - please type your message
+    Alert.alert(
+      t('chatbot.info') || 'Info',
+      'Voice input is temporarily unavailable. Please type your message instead.'
+    );
   };
 
   const stopRecording = async () => {
-    if (!recording) return;
-
-    try {
-      setIsRecording(false);
-      await recording.stopAndUnloadAsync();
-      const uri = recording.getURI();
-
-      if (uri) {
-        // Show processing indicator (will be dismissed by next alert)
-        setIsTyping(true); // Use typing indicator instead of blocking alert
-
-        try {
-          let transcription: string;
-
-          // Use appropriate transcription method based on platform
-          if (Platform.OS === 'web') {
-            // Web: Try Web Speech API first (free, no quota), fall back to Gemini
-            try {
-              transcription = await transcribeAudioWeb(i18n.language);
-            } catch (webError: any) {
-              console.warn('Web Speech API failed, trying Gemini:', webError.message);
-              // Fall back to Gemini if Web Speech fails and we have the audio
-              transcription = await transcribeAudioWithGemini({
-                audioUri: uri,
-                language: i18n.language,
-              });
-            }
-          } else {
-            // Native (iOS/Android): Use Gemini directly for audio transcription
-            // This is more efficient - 1 API call instead of using separate STT service
-            transcription = await transcribeAudioWithGemini({
-              audioUri: uri,
-              language: i18n.language,
-            });
-          }
-
-          setIsTyping(false);
-
-          if (transcription && transcription.trim()) {
-            setInputText(transcription);
-            // Simple success feedback without blocking alert
-            console.log('Transcription successful:', transcription);
-          } else {
-            Alert.alert(
-              t('chatbot.error') || 'Error',
-              t('chatbot.noSpeechDetected') || 'No speech detected. Please try again.',
-              [{ text: 'OK' }]
-            );
-          }
-        } catch (transcriptionError: any) {
-          setIsTyping(false);
-          console.error('Transcription error:', transcriptionError);
-          
-          // Show user-friendly error message
-          const errorMessage = transcriptionError.message || '';
-          let userMessage = t('chatbot.transcriptionError') || 'Failed to transcribe speech. Please try again.';
-          
-          // Check for quota/rate limit errors
-          if (errorMessage.includes('quota') || errorMessage.includes('limit') || errorMessage.includes('wait')) {
-            userMessage = errorMessage; // Use the descriptive error from the service
-          }
-          
-          Alert.alert(
-            t('chatbot.error') || 'Error',
-            userMessage,
-            [{ text: 'OK' }]
-          );
-        }
-      }
-
-      setRecording(null);
-    } catch (err) {
-      console.error('Failed to stop recording', err);
-      setIsTyping(false);
-      Alert.alert(
-        t('chatbot.error') || 'Error',
-        t('chatbot.recordingError') || 'Failed to process voice recording',
-        [{ text: 'OK' }]
-      );
-    }
+    // Voice input disabled
+    setIsRecording(false);
   };
 
   const speakText = async (text: string) => {

@@ -77,7 +77,26 @@
       "temperature": "তাপমাত্রা",
       "rain": "বৃষ্টি",
       "humidity": "আর্দ্রতা",
-      "condition": "অবস্থা"
+      "condition": "অবস্থা",
+      "precipitation": "বৃষ্টিপাত",
+      "hourlyForecast": "ঘন্টায় পূর্বাভাস",
+      "loading": "আবহাওয়া লোড হচ্ছে...",
+      "error": "আবহাওয়া লোড করতে অক্ষম",
+      "locationError": "অবস্থান অ্যাক্সেস অস্বীকার করা হয়েছে",
+      "retry": "পুনরায় চেষ্টা করুন",
+      "conditions": {
+        "clear": "পরিষ্কার আকাশ",
+        "partlyCloudy": "আংশিক মেঘলা",
+        "cloudy": "মেঘলা",
+        "foggy": "কুয়াশাচ্ছন্ন",
+        "drizzle": "গুঁড়ি গুঁড়ি বৃষ্টি",
+        "rainy": "বৃষ্টি",
+        "heavyRain": "ভারী বৃষ্টি",
+        "snowy": "তুষারপাত",
+        "showers": "বৃষ্টির ঝাপটা",
+        "snowShowers": "তুষার ঝরনা",
+        "thunderstorm": "বজ্রঝড়"
+      }
     },
     "farmSummary": {
       "title": "খামার সারসংক্ষেপ",
@@ -153,7 +172,15 @@
       "corn": "ভুট্টা",
       "potato": "আলু",
       "tomato": "টমেটো",
-      "onion": "পেঁয়াজ"
+      "onion": "পেঁয়াজ",
+      "maize": "ভুট্টা",
+      "soybean": "সয়াবিন",
+      "chili": "মরিচ",
+      "banana": "কলা",
+      "mango": "আম",
+      "tea": "চা",
+      "coffee": "কফি",
+      "groundnut": "চিনাবাদাম"
     },
     "soilTypes": {
       "alluvial": "পলিমাটি",
@@ -281,11 +308,24 @@
     "recentWeatherPlaceholder": "আবহাওয়া নির্বাচন করুন",
     "analyzeButton": "ছবি বিশ্লেষণ করুন",
     "analyzing": "বিশ্লেষণ হচ্ছে...",
-    "imageRequired": "দয়া করে একটি ফসলের ছবি আপলোড করুন",
-    "cropTypes": {
+    "imageRequired": "দয়া করে একটি ফসলের ছবি আপলোড করুন",    "otherCropType": "ফসলের ধরন নির্দিষ্ট করুন",
+    "otherCropTypePlaceholder": "ফসলের নাম লিখুন",    "cropTypes": {
       "rice": "ধান",
       "wheat": "গম",
-      "potato": "আলু"
+      "potato": "আলু",
+      "tomato": "টমেটো",
+      "cotton": "তুলা",
+      "sugarcane": "আখ",
+      "maize": "ভুট্টা",
+      "soybean": "সয়াবিন",
+      "chili": "মরিচ",
+      "onion": "পেঁয়াজ",
+      "banana": "কলা",
+      "mango": "আম",
+      "tea": "চা",
+      "coffee": "কফি",
+      "groundnut": "চিনাবাদাম",
+      "other": "অন্যান্য"
     },
     "weatherConditions": {
       "rainy": "বৃষ্টিময়",
@@ -317,7 +357,10 @@
       "low": "কম",
       "medium": "মাঝারি",
       "high": "উচ্চ"
-    }
+    },
+    "warning": "সতর্কতা",
+    "notCropWarning": "এই ছবিটি ফসল বা উদ্ভিদ বলে মনে হচ্ছে না। দয়া করে রোগ বিশ্লেষণের জন্য একটি ফসলের ছবি আপলোড করুন।",
+    "uploadNewImage": "নতুন ছবি আপলোড করুন"
   },
   "profile": {
     "title": "আমার প্রোফাইল",
@@ -349,7 +392,7 @@
       "title": "ত্রুটি",
       "message": "প্রোফাইল আপডেট করতে ব্যর্থ"
     },
-    "logout": {
+    "logoutConfirm": {
       "confirmTitle": "লগআউট",
       "confirmMessage": "আপনি কি নিশ্চিত যে আপনি লগআউট করতে চান?",
       "cancel": "বাতিল",

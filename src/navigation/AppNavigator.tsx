@@ -10,7 +10,7 @@ import { DocumentAnalyzerScreen } from '../screens/DocumentAnalyzerScreen';
 import { CropDiseaseDetectionScreen } from '../screens/CropDiseaseDetectionScreen';
 import { DiseaseResultScreen } from '../screens/DiseaseResultScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
-import { CropPredictionResult } from '../services/gemini';
+import { CropPredictionResult, CropDiseaseResult } from '../services/gemini';
 
 export type RootStackParamList = {
   SignIn: undefined;
@@ -27,6 +27,7 @@ export type RootStackParamList = {
     cropType: string;
     cropAge: string;
     weather: string;
+    diseaseResult: CropDiseaseResult;
   };
   Profile: undefined;
 };
