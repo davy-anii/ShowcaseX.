@@ -650,8 +650,12 @@
     "voiceRecorded": "Voice Recorded",
     "voiceProcessed": "Your voice has been transcribed. You can now send the message.",
     "recording": "Recording...",
+    "processing": "Processing audio...",
     "error": "Error",
     "recordingError": "Failed to process voice recording",
+    "permissionDenied": "Permission Denied",
+    "microphonePermission": "Microphone permission is required for voice input.",
+    "info": "Info",
     "permissions": {
       "title": "Permission Required",
       "microphone": "Microphone access is required for voice input."

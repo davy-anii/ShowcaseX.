@@ -536,6 +536,138 @@ Consider factors like:
  * @param language - Target language for response (en, hi, bn)
  * @returns Crop disease analysis results
  */
+// ============ SPEECH-TO-TEXT VIA GEMINI ============
+
+const AUDIO_MODELS = [
+  'gemini-2.5-flash-lite-preview-09-2025',
+  'gemini-2.5-flash-lite',
+  'gemini-2.5-flash-native-audio-preview-12-2025',
+  'gemini-2.5-flash-preview-09-2025',
+  'gemini-2.5-flash',
+  'gemini-3-flash-preview',
+];
+
+let currentAudioModelIndex = 0;
+
+export const transcribeAudio = async (params: {
+  audioUri: string;
+  language: string;
+}): Promise<string> => {
+  const { audioUri, language } = params;
+
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    throw new Error('Missing Gemini API key. Set GEMINI_API_KEY in .env file.');
+  }
+
+  const langCode = coerceLanguage(language);
+  const languageName = LANGUAGE_NAME[langCode];
+
+  // Convert audio file to base64
+  const audioBase64 = await fileToBase64(audioUri);
+
+  // Try each model in sequence until one succeeds
+  let lastError: Error | null = null;
+  const startIndex = currentAudioModelIndex;
+  
+  for (let attempt = 0; attempt < AUDIO_MODELS.length; attempt++) {
+    const modelIndex = (startIndex + attempt) % AUDIO_MODELS.length;
+    const model = AUDIO_MODELS[modelIndex];
+    
+    try {
+      console.log(`Attempting transcription with model: ${model}`);
+      
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+        model
+      )}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+      const prompt = `You are a speech-to-text transcription service. 
+Transcribe the audio into text in ${languageName}.
+Return ONLY the transcribed text, nothing else.
+Do not add any explanations, labels, or formatting.`;
+
+      const requestBody = {
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                inlineData: {
+                  mimeType: 'audio/m4a',
+                  data: audioBase64,
+                },
+              },
+              { text: prompt },
+            ],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.1,
+          topP: 0.8,
+          maxOutputTokens: 1024,
+        },
+      };
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      const json = await response.json().catch(() => ({}));
+
+      // Check for quota exceeded error
+      if (!response.ok) {
+        const errorMessage = json?.error?.message || '';
+        const status = response.status;
+        
+        // If quota exceeded (429) or resource exhausted, try next model
+        if (status === 429 || errorMessage.toLowerCase().includes('quota') || errorMessage.toLowerCase().includes('resource exhausted')) {
+          console.log(`Model ${model} quota exceeded, trying next model...`);
+          currentAudioModelIndex = (modelIndex + 1) % AUDIO_MODELS.length;
+          lastError = new Error(`Quota exceeded for ${model}`);
+          continue;
+        }
+        
+        // For other errors, throw immediately
+        throw new Error(errorMessage || `Gemini request failed (${status})`);
+      }
+
+      const contentText = json?.candidates?.[0]?.content?.parts
+        ?.map((p: { text?: string }) => p.text)
+        .filter(Boolean)
+        .join('')
+        ?.trim();
+
+      if (!contentText) {
+        throw new Error('No transcription received from Gemini');
+      }
+
+      // Success! Update current model index for next time
+      currentAudioModelIndex = modelIndex;
+      console.log(`Successfully transcribed with model: ${model}`);
+      
+      return contentText;
+    } catch (error: any) {
+      console.error(`Error with model ${model}:`, error.message);
+      lastError = error;
+      
+      // If this was the last model, throw the error
+      if (attempt === AUDIO_MODELS.length - 1) {
+        break;
+      }
+      
+      // Otherwise, continue to next model
+      continue;
+    }
+  }
+
+  // All models failed
+  throw lastError || new Error('All speech-to-text models failed. Please try again later.');
+};
+
 export const detectCropDisease = async (params: {
   input: CropDiseaseInput;
   language: string;
