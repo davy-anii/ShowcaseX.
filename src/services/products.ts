@@ -5,6 +5,7 @@ import {
   query,
   where,
   Timestamp,
+  writeBatch,
   deleteDoc,
   doc,
   updateDoc,
@@ -167,6 +168,8 @@ export interface MarketDeal {
   offerPrice: number;
 
   buyerSeen: boolean;
+  /** Whether the farmer has seen/dismissed the deal notification (pending or otherwise). */
+  farmerSeen?: boolean;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -672,6 +675,7 @@ export const createMarketDeal = async (input: {
       offerQuantity: input.offerQuantity,
       offerPrice: input.offerPrice,
       buyerSeen: true,
+      farmerSeen: false,
       createdAt: now,
       updatedAt: now,
     });
@@ -693,6 +697,10 @@ export const createMarketDeal = async (input: {
     }
     throw error;
   }
+};
+
+export const markFarmerDealSeen = async (dealId: string): Promise<void> => {
+  await updateDoc(doc(db, 'marketDeals', dealId), { farmerSeen: true });
 };
 
 export const getFarmerMarketDeals = async (farmerId: string): Promise<MarketDeal[]> => {
@@ -747,24 +755,38 @@ export const rejectMarketDeal = async (dealId: string): Promise<void> => {
   await updateDoc(doc(db, 'marketDeals', dealId), {
     status: 'rejected',
     buyerSeen: false,
+    farmerSeen: true,
     updatedAt: Timestamp.now(),
   });
 };
 
 export const acceptMarketDeal = async (deal: MarketDeal): Promise<void> => {
-  // If negotiation is accepted, apply the buyer's offer to the product.
+  const now = Timestamp.now();
+  const batch = writeBatch(db);
+
+  // Always update the deal status.
+  batch.update(doc(db, 'marketDeals', deal.id), {
+    status: 'accepted',
+    buyerSeen: false,
+    farmerSeen: true,
+    updatedAt: now,
+  });
+
   if (deal.kind === 'negotiation') {
-    await updateDoc(doc(db, 'products', deal.productId), {
+    // If negotiation is accepted, apply the buyer's offered price to the product.
+    // IMPORTANT: do not mutate quantity here; quantities are managed by the farmer.
+    batch.update(doc(db, 'products', deal.productId), {
       rate: Number(deal.offerPrice),
-      quantity: Number(deal.offerQuantity),
     });
   }
 
-  await updateDoc(doc(db, 'marketDeals', deal.id), {
-    status: 'accepted',
-    buyerSeen: false,
-    updatedAt: Timestamp.now(),
-  });
+  if (deal.kind === 'requestToBuy') {
+    // If farmer accepts a request-to-buy, remove the product from listings.
+    // This matches the UX expectation that the farmer no longer has stock.
+    batch.delete(doc(db, 'products', deal.productId));
+  }
+
+  await batch.commit();
 };
 
 /**

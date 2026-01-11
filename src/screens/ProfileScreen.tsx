@@ -558,11 +558,11 @@ export const ProfileScreen = () => {
               </LinearGradient>
             </View>
 
-            {/* Location Information Section - Only for Farmers */}
-            {profileData.userType === 'farmer' && (
+            {/* Location Information Section */}
+            {(profileData.state || profileData.district) && (
               <View style={{ marginBottom: 18 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-                  <MapPin size={20} color="#22C55E" strokeWidth={2.5} />
+                  <MapPin size={20} color={profileData.userType === 'buyer' ? '#3B82F6' : '#22C55E'} strokeWidth={2.5} />
                   <Text style={{ fontSize: 18, fontWeight: '700', color: '#111827' }}>
                     {tr('profile.locationInfo', 'Location Information')}
                   </Text>
@@ -574,7 +574,7 @@ export const ProfileScreen = () => {
                     borderRadius: 20,
                     padding: 20,
                     gap: 14,
-                    shadowColor: '#22C55E',
+                    shadowColor: profileData.userType === 'buyer' ? '#3B82F6' : '#22C55E',
                     shadowOffset: { width: 0, height: 4 },
                     shadowOpacity: 0.1,
                     shadowRadius: 12,
@@ -589,7 +589,7 @@ export const ProfileScreen = () => {
                     value={
                       INDIAN_STATES.find((s) => s.value === profileData.state)
                         ? t(INDIAN_STATES.find((s) => s.value === profileData.state)!.labelKey)
-                        : ''
+                        : profileData.state
                     }
                     editable={false}
                     style={{ backgroundColor: '#F3F4F6' }}

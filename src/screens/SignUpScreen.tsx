@@ -26,6 +26,7 @@ import {
   updateCurrentAuthProfile,
   signInWithGoogle,
 } from '../services/auth';
+import { detectCurrentLocation } from '../services/location';
 
 type SignUpScreenNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -86,6 +87,39 @@ export const SignUpScreen = () => {
       }
     };
     loadSavedLanguage();
+  }, []);
+
+  // Auto-detect location on sign up
+  useEffect(() => {
+    const detect = async () => {
+      const res = await detectCurrentLocation();
+      if (!res.ok) {
+        if (res.reason === 'services-disabled') {
+          Alert.alert(
+            tr('signUp.locationRequiredTitle', 'Location Required'),
+            tr('signUp.turnOnLocationServices', 'Please turn on Location Services to auto-fill your location.')
+          );
+          return;
+        }
+        if (res.reason === 'permission-denied') {
+          Alert.alert(
+            tr('signUp.locationRequiredTitle', 'Location Required'),
+            tr('signUp.allowLocationPermission', 'Please allow location permission to auto-fill your location.')
+          );
+        }
+        return;
+      }
+
+      // Prefer mapped values so dropdown shows correctly; otherwise keep existing.
+      setFormData((prev) => ({
+        ...prev,
+        state: res.location.stateValue || prev.state,
+        district: res.location.districtValue || prev.district,
+      }));
+    };
+
+    // Don’t block UI; best-effort.
+    detect();
   }, []);
 
   const tr = (key: string, fallback: string) => {
@@ -206,10 +240,12 @@ export const SignUpScreen = () => {
         profilePhoto: null,
       };
 
+      // Persist detected/manual location for all roles (buyer + farmer)
+      if (formData.state) profileData.state = formData.state;
+      if (formData.district) profileData.district = formData.district;
+
       // Add farmer-specific fields only for farmers
       if (role === 'farmer') {
-        profileData.state = formData.state;
-        profileData.district = formData.district;
         profileData.preferredLanguage = formData.preferredLanguage;
         profileData.farmerType = formData.farmerType;
         profileData.landSize = formData.landSize;

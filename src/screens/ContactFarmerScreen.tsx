@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
   ScrollView,
+  FlatList,
   TouchableOpacity,
   SafeAreaView,
   Linking,
@@ -11,13 +12,14 @@ import {
   TextInput,
   Modal,
   ActivityIndicator,
+  Dimensions,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   ArrowLeft,
+  Bell,
   Phone,
   MessageCircle,
-  Mail,
   User,
   MapPin,
   IndianRupee,
@@ -26,18 +28,18 @@ import {
   ChevronDown,
   X,
   UserCheck,
+  RefreshCcw,
 } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { auth } from '../config/firebase';
+import { detectCurrentLocation } from '../services/location';
 import {
   searchProducts,
   groupProductsByFarmer,
-  FarmerProduct,
   getHiredFarmers,
-  HiredFarmer,
   createMarketDeal,
   getBuyerMarketDeals,
   MarketDeal,
@@ -72,19 +74,36 @@ export const ContactFarmerScreen = () => {
   const { t, i18n } = useTranslation();
   const navigation = useNavigation<ContactFarmerNavigationProp>();
 
+  const FARMERS_PAGE_SIZE = 10;
+  const screenWidth = Dimensions.get('window').width;
+  const farmersCarouselWidth = Math.max(1, screenWidth - 48);
+  const farmersListRef = useRef<FlatList<FarmerListing> | null>(null);
+
+  const acceptedDealsCarouselWidth = farmersCarouselWidth;
+  const acceptedDealsListRef = useRef<FlatList<MarketDeal> | null>(null);
+  const [acceptedDealsIndex, setAcceptedDealsIndex] = useState(0);
+
   // State for search form
-  const [locationInput, setLocationInput] = useState('');
   const [cropType, setCropType] = useState('');
   const [customCropType, setCustomCropType] = useState('');
   const [showCropModal, setShowCropModal] = useState(false);
   const [showCustomCropModal, setShowCustomCropModal] = useState(false);
-  const [searchResults, setSearchResults] = useState<FarmerListing[]>([]);
+
+  const [buyerLocation, setBuyerLocation] = useState('');
+  const [buyerLocationLoading, setBuyerLocationLoading] = useState(false);
+
+  const [allSearchResults, setAllSearchResults] = useState<FarmerListing[]>([]);
+  const [resultsPage, setResultsPage] = useState(0);
+  const [carouselIndex, setCarouselIndex] = useState(0);
+
   const [hiredFarmers, setHiredFarmers] = useState<FarmerListing[]>([]);
   const [loading, setLoading] = useState(false);
   const [hiredLoading, setHiredLoading] = useState(false);
 
   const [buyerDeals, setBuyerDeals] = useState<MarketDeal[]>([]);
   const [dealsLoading, setDealsLoading] = useState(false);
+
+  const [showBuyerNotificationsModal, setShowBuyerNotificationsModal] = useState(false);
 
   const [showNegotiationModal, setShowNegotiationModal] = useState(false);
   const [negFarmer, setNegFarmer] = useState<FarmerListing | null>(null);
@@ -93,9 +112,78 @@ export const ContactFarmerScreen = () => {
   const [negPrice, setNegPrice] = useState('');
 
   useEffect(() => {
+    loadBuyerLocation();
     loadHiredFarmers();
     loadBuyerDeals();
   }, []);
+
+  // Reload deals when returning to this screen so accepted offers show up reliably.
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      loadBuyerDeals();
+    });
+    return unsubscribe;
+  }, [navigation]);
+
+  const loadBuyerLocation = async () => {
+    try {
+      setBuyerLocationLoading(true);
+      const result = await detectCurrentLocation();
+      if (!result.ok) {
+        setBuyerLocation('');
+        if (result.reason === 'services-disabled') {
+          Alert.alert(
+            tr('contactFarmer.locationServicesDisabledTitle', 'Location Services Disabled'),
+            tr(
+              'contactFarmer.turnOnLocationServices',
+              'Please enable Location Services in your device settings and try again.'
+            )
+          );
+          return;
+        }
+        if (result.reason === 'permission-denied') {
+          Alert.alert(
+            tr('contactFarmer.locationPermissionRequiredTitle', 'Location Permission Required'),
+            tr(
+              'contactFarmer.allowLocationPermission',
+              'Please allow location permission to find nearby farmers. You will be directed to app settings.'
+            ),
+            [
+              {
+                text: tr('contactFarmer.openSettings', 'Open Settings'),
+                onPress: () => {
+                  Linking.openSettings().catch(() => {
+                    Alert.alert(
+                      tr('contactFarmer.error', 'Error'),
+                      'Could not open settings. Please manually enable location permission in your device settings.'
+                    );
+                  });
+                },
+              },
+              { text: tr('contactFarmer.ok', 'OK'), style: 'cancel' },
+            ]
+          );
+          return;
+        }
+
+        Alert.alert(
+          tr('contactFarmer.error', 'Error'),
+          result.message || tr('contactFarmer.locationDetectFailed', 'Could not detect your location. Please try again.')
+        );
+        return;
+      }
+
+      setBuyerLocation(result.location.formatted || result.location.sortKey);
+    } catch {
+      setBuyerLocation('');
+      Alert.alert(
+        tr('contactFarmer.error', 'Error'),
+        tr('contactFarmer.locationDetectFailed', 'Could not detect your location. Please try again.')
+      );
+    } finally {
+      setBuyerLocationLoading(false);
+    }
+  };
 
   const loadBuyerDeals = async () => {
     try {
@@ -138,13 +226,13 @@ export const ContactFarmerScreen = () => {
   };
 
   const handleSearch = async () => {
-    const locationQuery = locationInput.trim();
     const cropQuery = cropType === 'Other' ? customCropType.trim() : cropType.trim();
 
-    if (!locationQuery && !cropQuery) {
+    const buyerLoc = buyerLocation.trim();
+    if (!buyerLoc) {
       Alert.alert(
-        tr('contactFarmer.error', 'Error'),
-        'Please fill at least one search criteria'
+        tr('contactFarmer.locationRequired', 'Location Required'),
+        tr('contactFarmer.turnOnLocationToSearch', 'Please turn on location to search nearby farmers.')
       );
       return;
     }
@@ -152,7 +240,6 @@ export const ContactFarmerScreen = () => {
     try {
       setLoading(true);
       const products = await searchProducts({
-        location: locationQuery || undefined,
         cropType: cropQuery || undefined,
       });
 
@@ -163,9 +250,7 @@ export const ContactFarmerScreen = () => {
       farmerMap.forEach((farmerProducts, farmerId) => {
         if (farmerProducts.length > 0) {
           const first = farmerProducts[0];
-          const distanceKm = locationQuery
-            ? distanceKmBetweenLocations(locationQuery, first.farmerLocation)
-            : null;
+          const distanceKm = distanceKmBetweenLocations(buyerLoc, first.farmerLocation);
           listings.push({
             id: farmerId,
             farmerId,
@@ -195,7 +280,10 @@ export const ContactFarmerScreen = () => {
           })
         : listings;
 
-      setSearchResults(sorted);
+      setAllSearchResults(sorted);
+      setResultsPage(0);
+      setCarouselIndex(0);
+      farmersListRef.current?.scrollToOffset({ offset: 0, animated: false });
 
       if (listings.length === 0) {
         Alert.alert(
@@ -212,6 +300,27 @@ export const ContactFarmerScreen = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const pageCount = useMemo(
+    () => Math.max(1, Math.ceil(allSearchResults.length / FARMERS_PAGE_SIZE)),
+    [allSearchResults.length]
+  );
+
+  const pagedFarmers = useMemo(() => {
+    const start = resultsPage * FARMERS_PAGE_SIZE;
+    const end = start + FARMERS_PAGE_SIZE;
+    return allSearchResults.slice(start, end);
+  }, [allSearchResults, resultsPage]);
+
+  const canRefreshFarmers = allSearchResults.length > FARMERS_PAGE_SIZE;
+
+  const refreshFarmersPage = () => {
+    if (!canRefreshFarmers) return;
+    const next = (resultsPage + 1) % pageCount;
+    setResultsPage(next);
+    setCarouselIndex(0);
+    farmersListRef.current?.scrollToOffset({ offset: 0, animated: true });
   };
 
   const openNegotiation = (farmer: FarmerListing) => {
@@ -252,7 +361,7 @@ export const ContactFarmerScreen = () => {
         buyerId: user.uid,
         buyerName: user.displayName || 'Buyer',
         buyerPhone: user.phoneNumber || '+91 0000000000',
-        buyerLocation: locationInput.trim(),
+        buyerLocation: buyerLocation.trim(),
         productId: negProduct.id,
         productName: negProduct.name,
         unit: negProduct.unit,
@@ -291,7 +400,7 @@ export const ContactFarmerScreen = () => {
         buyerId: user.uid,
         buyerName: user.displayName || 'Buyer',
         buyerPhone: user.phoneNumber || '+91 0000000000',
-        buyerLocation: locationInput.trim(),
+        buyerLocation: buyerLocation.trim(),
         productId: product.id,
         productName: product.name,
         unit: product.unit,
@@ -308,10 +417,35 @@ export const ContactFarmerScreen = () => {
 
   const dismissBuyerDeal = async (dealId: string) => {
     try {
+      // Optimistically mark as read so it disappears from the notification list.
+      setBuyerDeals((prev) =>
+        prev.map((d) => (d.id === dealId ? { ...d, buyerSeen: true } : d))
+      );
+
+      // Mark as read in backend
       await markBuyerDealSeen(dealId);
+    } catch (error) {
+      console.error('Error marking as read:', error);
+      Alert.alert(tr('contactFarmer.error', 'Error'), tr('contactFarmer.failedToMarkRead', 'Failed to mark as read'));
+    } finally {
+      // Sync once so notifications don't reappear after restart.
       await loadBuyerDeals();
+    }
+  };
+
+  const dismissBuyerDeals = async (dealIds: string[]) => {
+    if (dealIds.length === 0) return;
+
+    setBuyerDeals((prev) =>
+      prev.map((d) => (dealIds.includes(d.id) ? { ...d, buyerSeen: true } : d))
+    );
+
+    try {
+      await Promise.all(dealIds.map((id) => markBuyerDealSeen(id)));
     } catch {
-      // ignore
+      Alert.alert(tr('contactFarmer.error', 'Error'), tr('contactFarmer.failedToMarkAllRead', 'Failed to mark notifications read'));
+    } finally {
+      await loadBuyerDeals();
     }
   };
 
@@ -321,6 +455,17 @@ export const ContactFarmerScreen = () => {
     } catch {
       return fallback;
     }
+  };
+
+  const toSingularCropLabel = (raw: string) => {
+    const s = String(raw || '').trim();
+    if (!s) return s;
+    if (s.toLowerCase() === 'other') return s;
+    // Lightweight singularization for UI labels.
+    if (s.endsWith('ies')) return s.slice(0, -3) + 'y';
+    if (s.endsWith('ses')) return s.slice(0, -2);
+    if (s.endsWith('s') && !s.endsWith('ss')) return s.slice(0, -1);
+    return s;
   };
 
   const handlePhoneCall = (phone: string) => {
@@ -356,6 +501,25 @@ export const ContactFarmerScreen = () => {
   const unreadBuyerUpdates = buyerDeals.filter(
     (d) => d.status !== 'pending' && d.buyerSeen === false
   );
+
+  const buyerDealUpdatesSorted = useMemo(() => {
+    return [...buyerDeals]
+      .filter((d) => d.status !== 'pending' && d.buyerSeen === false)
+      .sort(
+        (a, b) => (b.updatedAt?.toMillis?.() ?? 0) - (a.updatedAt?.toMillis?.() ?? 0)
+      );
+  }, [buyerDeals]);
+
+  // Buyer-side: show ALL accepted deals here (negotiation + requestToBuy).
+  // Previously this was limited to requestToBuy which hid accepted negotiations.
+  const acceptedDeals = useMemo(() => {
+    return buyerDeals.filter((d) => d.status === 'accepted');
+  }, [buyerDeals]);
+
+  useEffect(() => {
+    setAcceptedDealsIndex(0);
+    acceptedDealsListRef.current?.scrollToOffset({ offset: 0, animated: false });
+  }, [acceptedDeals.length]);
 
   return (
     <SafeAreaView className="flex-1" style={{ backgroundColor: '#FFFFFF' }}>
@@ -400,23 +564,69 @@ export const ContactFarmerScreen = () => {
               {tr('contactFarmer.back', 'Back')}
             </Text>
           </TouchableOpacity>
-          <View>
-            <Text style={{
-              color: '#fff',
-              fontSize: 32,
-              fontWeight: '800',
-              letterSpacing: -0.5,
-            }}>
-              {tr('contactFarmer.title', 'Contact Farmer')}
-            </Text>
-            <Text style={{
-              color: 'rgba(255, 255, 255, 0.9)',
-              fontSize: 15,
-              fontWeight: '500',
-              marginTop: 8,
-            }}>
-              {tr('contactFarmer.subtitle', 'Browse fresh produce from farmers')}
-            </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <View style={{ flex: 1, paddingRight: 12 }}>
+              <Text style={{
+                color: '#fff',
+                fontSize: 32,
+                fontWeight: '800',
+                letterSpacing: -0.5,
+              }}>
+                {tr('contactFarmer.title', 'Contact Farmer')}
+              </Text>
+              <Text style={{
+                color: 'rgba(255, 255, 255, 0.9)',
+                fontSize: 15,
+                fontWeight: '500',
+                marginTop: 8,
+              }}>
+                {tr('contactFarmer.subtitle', 'Browse fresh produce from farmers')}
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              onPress={async () => {
+                await loadBuyerDeals();
+                setShowBuyerNotificationsModal(true);
+              }}
+              activeOpacity={0.85}
+              style={{ position: 'relative' }}
+            >
+              <View
+                style={{
+                  backgroundColor: 'rgba(255,255,255,0.18)',
+                  borderRadius: 30,
+                  width: 56,
+                  height: 56,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Bell size={26} color="#fff" strokeWidth={2.5} />
+              </View>
+
+              {unreadBuyerUpdates.length > 0 && (
+                <View
+                  style={{
+                    position: 'absolute',
+                    top: -4,
+                    right: -4,
+                    backgroundColor: '#EF4444',
+                    borderRadius: 12,
+                    width: 24,
+                    height: 24,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    borderWidth: 2,
+                    borderColor: '#fff',
+                  }}
+                >
+                  <Text style={{ color: '#fff', fontSize: 11, fontWeight: '800' }}>
+                    {unreadBuyerUpdates.length}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
           </View>
         </LinearGradient>
 
@@ -447,33 +657,6 @@ export const ContactFarmerScreen = () => {
               elevation: 3,
             }}
           >
-            {/* Location Input */}
-            <Text style={{
-              color: '#374151',
-              fontSize: 14,
-              fontWeight: '700',
-              marginBottom: 8,
-            }}>
-              {tr('contactFarmer.location', 'Location')}
-            </Text>
-            <TextInput
-              value={locationInput}
-              onChangeText={setLocationInput}
-              placeholder={tr('contactFarmer.typeLocation', 'Type a location (e.g., Bihar)')}
-              placeholderTextColor="#9CA3AF"
-              autoCapitalize="words"
-              style={{
-                backgroundColor: '#F3F4F6',
-                borderRadius: 12,
-                padding: 14,
-                fontSize: 15,
-                color: '#111827',
-                borderWidth: 1,
-                borderColor: '#E5E7EB',
-                marginBottom: 16,
-              }}
-            />
-
             {/* Crop Type */}
             <Text style={{
               color: '#374151',
@@ -505,7 +688,9 @@ export const ContactFarmerScreen = () => {
               }}>
                 {(cropType === 'Other' && customCropType
                   ? customCropType
-                  : cropType) || tr('contactFarmer.selectCrop', 'Select Crop Type')}
+                  : cropType
+                    ? toSingularCropLabel(cropType)
+                    : '') || tr('contactFarmer.selectCrop', 'Select Crop Type')}
               </Text>
               <ChevronDown size={20} color="#6B7280" strokeWidth={2} />
             </TouchableOpacity>
@@ -564,332 +749,332 @@ export const ContactFarmerScreen = () => {
           </LinearGradient>
         </View>
 
-        {/* Buyer Notifications */}
-        {unreadBuyerUpdates.length > 0 && (
-          <View style={{ paddingHorizontal: 24, marginTop: 4, marginBottom: 12 }}>
-            <Text style={{
-              color: '#111827',
-              fontSize: 20,
-              fontWeight: '800',
-              marginBottom: 12,
-              letterSpacing: -0.3,
-            }}>
-              Updates ({unreadBuyerUpdates.length})
-            </Text>
 
-            {unreadBuyerUpdates.slice(0, 6).map((d) => (
-              <View
-                key={d.id}
-                style={{
-                  backgroundColor: d.status === 'accepted' ? '#ECFDF5' : '#FEF2F2',
-                  borderRadius: 18,
-                  padding: 14,
-                  marginBottom: 10,
-                  borderWidth: 1,
-                  borderColor: d.status === 'accepted' ? '#A7F3D0' : '#FECACA',
-                }}
-              >
-                <Text style={{ color: '#111827', fontSize: 15, fontWeight: '800', marginBottom: 6 }}>
-                  {d.status === 'accepted' ? 'Accepted' : 'Rejected'}: {d.productName}
-                </Text>
-                <Text style={{ color: '#374151', fontSize: 13, fontWeight: '600' }}>
-                  Farmer: {d.farmerName} • {d.kind === 'negotiation' ? 'Negotiation' : 'Request to Buy'}
-                </Text>
-                {d.kind === 'negotiation' && (
-                  <Text style={{ color: '#374151', fontSize: 13, fontWeight: '600', marginTop: 6 }}>
-                    Offer: {d.offerQuantity} {d.unit} @ ₹{d.offerPrice}/{d.unit}
-                  </Text>
-                )}
-
-                <TouchableOpacity
-                  onPress={() => dismissBuyerDeal(d.id)}
-                  activeOpacity={0.85}
-                  style={{ marginTop: 10, alignSelf: 'flex-start' }}
-                >
-                  <LinearGradient
-                    colors={['#111827', '#374151']}
-                    style={{ borderRadius: 12, paddingVertical: 10, paddingHorizontal: 14 }}
-                  >
-                    <Text style={{ color: '#fff', fontSize: 13, fontWeight: '800' }}>Dismiss</Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-              </View>
-            ))}
-          </View>
-        )}
 
         {/* Available Farmers (Search Results) */}
-        {searchResults.length > 0 && (
+        {allSearchResults.length > 0 && (
           <View style={{ paddingHorizontal: 24, marginTop: 8 }}>
-            <Text style={{
-              color: '#111827',
-              fontSize: 22,
-              fontWeight: '800',
-              marginBottom: 20,
-              letterSpacing: -0.3,
-            }}>
-              {tr('contactFarmer.availableFarmers', 'Available Farmers')} ({searchResults.length})
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+              <Text style={{
+                color: '#111827',
+                fontSize: 22,
+                fontWeight: '800',
+                letterSpacing: -0.3,
+              }}>
+                {tr('contactFarmer.availableFarmers', 'Available Farmers')} ({allSearchResults.length})
+              </Text>
 
-            {searchResults.map((farmer) => {
-              return (
-                <LinearGradient
-                  key={farmer.id}
-                  colors={['#FFFFFF', '#FAFAFA']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 0, y: 1 }}
-                style={{
-                  borderRadius: 20,
-                  padding: 20,
-                  marginBottom: 20,
-                  borderWidth: 1,
-                  borderColor: '#E5E7EB',
-                  shadowColor: '#000',
-                  shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: 0.06,
-                  shadowRadius: 12,
-                  elevation: 3,
-                }}
-              >
-                {/* Farmer Info Header */}
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' }}>
+              {canRefreshFarmers && (
+                <TouchableOpacity onPress={refreshFarmersPage} activeOpacity={0.85}>
                   <LinearGradient
-                    colors={['#10B981', '#059669']}
+                    colors={['#111827', '#374151']}
+                    style={{ borderRadius: 14, paddingVertical: 10, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center' }}
+                  >
+                    <RefreshCcw size={16} color="#fff" strokeWidth={2.5} />
+                    <Text style={{ color: '#fff', fontSize: 13, fontWeight: '800', marginLeft: 8 }}>
+                      Refresh
+                    </Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <FlatList
+              ref={(r) => {
+                farmersListRef.current = r;
+              }}
+              data={pagedFarmers}
+              keyExtractor={(item) => item.id}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              onMomentumScrollEnd={(e) => {
+                const x = e.nativeEvent.contentOffset.x;
+                const idx = Math.round(x / farmersCarouselWidth);
+                setCarouselIndex(idx);
+              }}
+              renderItem={({ item: farmer }) => (
+                <View style={{ width: farmersCarouselWidth }}>
+                  <LinearGradient
+                    colors={['#FFFFFF', '#FAFAFA']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 0, y: 1 }}
                     style={{
-                      width: 60,
-                      height: 60,
-                      borderRadius: 30,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      marginRight: 14,
-                      shadowColor: '#10B981',
-                      shadowOffset: { width: 0, height: 3 },
-                      shadowOpacity: 0.3,
-                      shadowRadius: 6,
-                      elevation: 4,
+                      borderRadius: 20,
+                      padding: 20,
+                      marginBottom: 10,
+                      borderWidth: 1,
+                      borderColor: '#E5E7EB',
+                      shadowColor: '#000',
+                      shadowOffset: { width: 0, height: 4 },
+                      shadowOpacity: 0.06,
+                      shadowRadius: 12,
+                      elevation: 3,
                     }}
                   >
-                    <User size={30} color="#fff" strokeWidth={2.5} />
-                  </LinearGradient>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{
-                      color: '#111827',
-                      fontSize: 20,
-                      fontWeight: '800',
-                      marginBottom: 6,
-                    }}>
-                      {farmer.farmerName}
-                    </Text>
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                      <MapPin size={14} color="#6B7280" strokeWidth={2} />
-                      <Text style={{
-                        color: '#6B7280',
-                        fontSize: 13,
-                        fontWeight: '500',
-                        marginLeft: 6,
-                      }}>
-                        {farmer.location}
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-
-                {/* Products Grid */}
-                <View style={{ marginBottom: 20 }}>
-                  <Text style={{
-                    color: '#111827',
-                    fontSize: 17,
-                    fontWeight: '800',
-                    marginBottom: 14,
-                  }}>
-                    {tr('contactFarmer.availableProducts', 'Available Products')}
-                  </Text>
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    style={{ marginBottom: 8 }}
-                  >
-                    {farmer.products.map((product) => (
-                      <LinearGradient
-                        key={product.id}
-                        colors={['#FFFFFF', '#F9FAFB']}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 0, y: 1 }}
-                        style={{
-                          width: 170,
-                          marginRight: 12,
-                          borderRadius: 16,
-                          overflow: 'hidden',
-                          borderWidth: 1,
-                          borderColor: '#E5E7EB',
-                        }}
-                      >
-                        <Image
-                          source={{ uri: product.image }}
-                          style={{ width: '100%', height: 100 }}
-                          resizeMode="cover"
-                        />
-                        <View style={{ padding: 12 }}>
-                          <Text
-                            style={{
-                              color: '#111827',
-                              fontSize: 14,
-                              fontWeight: '700',
-                              marginBottom: 8,
-                            }}
-                            numberOfLines={1}
-                          >
-                            {product.name}
-                          </Text>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <LinearGradient
-                              colors={['#10B981', '#059669']}
-                              style={{
-                                borderRadius: 8,
-                                paddingHorizontal: 8,
-                                paddingVertical: 5,
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                              }}
-                            >
-                              <IndianRupee size={12} color="#fff" strokeWidth={2.5} />
-                              <Text style={{
-                                color: '#fff',
-                                fontSize: 14,
-                                fontWeight: '800',
-                                marginLeft: 2,
-                              }}>
-                                {product.rate}
-                              </Text>
-                              <Text style={{
-                                color: 'rgba(255, 255, 255, 0.9)',
-                                fontSize: 10,
-                                fontWeight: '600',
-                                marginLeft: 2,
-                              }}>
-                                /{product.unit}
-                              </Text>
-                            </LinearGradient>
-                            <View style={{
-                              flexDirection: 'row',
-                              alignItems: 'center',
-                              backgroundColor: '#F3F4F6',
-                              borderRadius: 6,
-                              paddingHorizontal: 6,
-                              paddingVertical: 4,
-                            }}>
-                              <Package size={11} color="#6B7280" strokeWidth={2.5} />
-                              <Text style={{
-                                color: '#374151',
-                                fontSize: 11,
-                                fontWeight: '700',
-                                marginLeft: 4,
-                              }}>
-                                {product.quantity}
-                              </Text>
-                            </View>
-                          </View>
-                        </View>
-                      </LinearGradient>
-                    ))}
-                  </ScrollView>
-                </View>
-
-                {/* Action Buttons */}
-                <View style={{ gap: 12 }}>
-                  <View style={{ flexDirection: 'row', gap: 12 }}>
-                    <TouchableOpacity
-                      onPress={() => openNegotiation(farmer)}
-                      activeOpacity={0.8}
-                      disabled={pendingRequestForFarmer(farmer.farmerId)}
-                      style={{ flex: 1, opacity: pendingRequestForFarmer(farmer.farmerId) ? 0.5 : 1 }}
-                    >
-                      <LinearGradient
-                        colors={['#F59E0B', '#D97706']}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                        style={{
-                          borderRadius: 14,
-                          paddingVertical: 14,
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                      >
-                        <Text style={{ color: '#fff', fontSize: 14, fontWeight: '900' }}>Negotiation</Text>
-                      </LinearGradient>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      onPress={() => handleRequestToBuy(farmer)}
-                      activeOpacity={0.8}
-                      style={{ flex: 1 }}
-                    >
+                    {/* Farmer Info Header */}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' }}>
                       <LinearGradient
                         colors={['#10B981', '#059669']}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
                         style={{
-                          borderRadius: 14,
-                          paddingVertical: 14,
+                          width: 60,
+                          height: 60,
+                          borderRadius: 30,
                           alignItems: 'center',
                           justifyContent: 'center',
+                          marginRight: 14,
+                          shadowColor: '#10B981',
+                          shadowOffset: { width: 0, height: 3 },
+                          shadowOpacity: 0.3,
+                          shadowRadius: 6,
+                          elevation: 4,
                         }}
                       >
-                        <Text style={{ color: '#fff', fontSize: 14, fontWeight: '900' }}>Request to Buy</Text>
+                        <User size={30} color="#fff" strokeWidth={2.5} />
                       </LinearGradient>
-                    </TouchableOpacity>
-                  </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{
+                          color: '#111827',
+                          fontSize: 20,
+                          fontWeight: '800',
+                          marginBottom: 6,
+                        }}>
+                          {farmer.farmerName}
+                        </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                          <MapPin size={14} color="#6B7280" strokeWidth={2} />
+                          <Text style={{
+                            color: '#6B7280',
+                            fontSize: 13,
+                            fontWeight: '500',
+                            marginLeft: 6,
+                          }}>
+                            {farmer.location}
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
 
-                  <View style={{ flexDirection: 'row', gap: 12 }}>
-                    <TouchableOpacity
-                      onPress={() => handlePhoneCall(farmer.phone)}
-                      activeOpacity={0.8}
-                      style={{ flex: 1 }}
-                    >
-                      <LinearGradient
-                        colors={['#8B5CF6', '#7C3AED']}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                        style={{
-                          borderRadius: 14,
-                          paddingVertical: 14,
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
+                    {/* Products Grid */}
+                    <View style={{ marginBottom: 20 }}>
+                      <Text style={{
+                        color: '#111827',
+                        fontSize: 17,
+                        fontWeight: '800',
+                        marginBottom: 14,
+                      }}>
+                        {tr('contactFarmer.availableProducts', 'Available Products')}
+                      </Text>
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        style={{ marginBottom: 8 }}
                       >
-                        <Phone size={18} color="#fff" strokeWidth={2.5} />
-                        <Text style={{ color: '#fff', fontSize: 14, fontWeight: '800', marginLeft: 10 }}>Call</Text>
-                      </LinearGradient>
-                    </TouchableOpacity>
+                        {farmer.products.map((product) => (
+                          <LinearGradient
+                            key={product.id}
+                            colors={['#FFFFFF', '#F9FAFB']}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 0, y: 1 }}
+                            style={{
+                              width: 170,
+                              marginRight: 12,
+                              borderRadius: 16,
+                              overflow: 'hidden',
+                              borderWidth: 1,
+                              borderColor: '#E5E7EB',
+                            }}
+                          >
+                            <Image
+                              source={{ uri: product.image }}
+                              style={{ width: '100%', height: 100 }}
+                              resizeMode="cover"
+                            />
+                            <View style={{ padding: 12 }}>
+                              <Text
+                                style={{
+                                  color: '#111827',
+                                  fontSize: 14,
+                                  fontWeight: '700',
+                                  marginBottom: 8,
+                                }}
+                                numberOfLines={1}
+                              >
+                                {product.name}
+                              </Text>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <LinearGradient
+                                  colors={['#10B981', '#059669']}
+                                  style={{
+                                    borderRadius: 8,
+                                    paddingHorizontal: 8,
+                                    paddingVertical: 5,
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                  }}
+                                >
+                                  <IndianRupee size={12} color="#fff" strokeWidth={2.5} />
+                                  <Text style={{
+                                    color: '#fff',
+                                    fontSize: 14,
+                                    fontWeight: '800',
+                                    marginLeft: 2,
+                                  }}>
+                                    {product.rate}
+                                  </Text>
+                                  <Text style={{
+                                    color: 'rgba(255, 255, 255, 0.9)',
+                                    fontSize: 10,
+                                    fontWeight: '600',
+                                    marginLeft: 2,
+                                  }}>
+                                    /{product.unit}
+                                  </Text>
+                                </LinearGradient>
+                                <View style={{
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  backgroundColor: '#F3F4F6',
+                                  borderRadius: 6,
+                                  paddingHorizontal: 6,
+                                  paddingVertical: 4,
+                                }}>
+                                  <Package size={11} color="#6B7280" strokeWidth={2.5} />
+                                  <Text style={{
+                                    color: '#374151',
+                                    fontSize: 11,
+                                    fontWeight: '700',
+                                    marginLeft: 4,
+                                  }}>
+                                    {product.quantity}
+                                  </Text>
+                                </View>
+                              </View>
+                            </View>
+                          </LinearGradient>
+                        ))}
+                      </ScrollView>
+                    </View>
 
-                    <TouchableOpacity
-                      onPress={() => handleChat(farmer.farmerName, farmer.phone)}
-                      activeOpacity={0.8}
-                      style={{ flex: 1 }}
-                    >
-                      <LinearGradient
-                        colors={['#3B82F6', '#2563EB']}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                        style={{
-                          borderRadius: 14,
-                          paddingVertical: 14,
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                      >
-                        <MessageCircle size={18} color="#fff" strokeWidth={2.5} />
-                        <Text style={{ color: '#fff', fontSize: 14, fontWeight: '800', marginLeft: 10 }}>Chat</Text>
-                      </LinearGradient>
-                    </TouchableOpacity>
-                  </View>
+                    {/* Action Buttons */}
+                    <View style={{ gap: 12 }}>
+                      <View style={{ flexDirection: 'row', gap: 12 }}>
+                        <TouchableOpacity
+                          onPress={() => openNegotiation(farmer)}
+                          activeOpacity={0.8}
+                          disabled={pendingRequestForFarmer(farmer.farmerId)}
+                          style={{ flex: 1, opacity: pendingRequestForFarmer(farmer.farmerId) ? 0.5 : 1 }}
+                        >
+                          <LinearGradient
+                            colors={['#F59E0B', '#D97706']}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                            style={{
+                              borderRadius: 14,
+                              paddingVertical: 14,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            <Text style={{ color: '#fff', fontSize: 14, fontWeight: '900' }}>Negotiation</Text>
+                          </LinearGradient>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          onPress={() => handleRequestToBuy(farmer)}
+                          activeOpacity={0.8}
+                          style={{ flex: 1 }}
+                        >
+                          <LinearGradient
+                            colors={['#10B981', '#059669']}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                            style={{
+                              borderRadius: 14,
+                              paddingVertical: 14,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            <Text style={{ color: '#fff', fontSize: 14, fontWeight: '900' }}>Request to Buy</Text>
+                          </LinearGradient>
+                        </TouchableOpacity>
+                      </View>
+
+                      <View style={{ flexDirection: 'row', gap: 12 }}>
+                        <TouchableOpacity
+                          onPress={() => handlePhoneCall(farmer.phone)}
+                          activeOpacity={0.8}
+                          style={{ flex: 1 }}
+                        >
+                          <LinearGradient
+                            colors={['#8B5CF6', '#7C3AED']}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                            style={{
+                              borderRadius: 14,
+                              paddingVertical: 14,
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            <Phone size={18} color="#fff" strokeWidth={2.5} />
+                            <Text style={{ color: '#fff', fontSize: 14, fontWeight: '800', marginLeft: 10 }}>Call</Text>
+                          </LinearGradient>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          onPress={() => handleChat(farmer.farmerName, farmer.phone)}
+                          activeOpacity={0.8}
+                          style={{ flex: 1 }}
+                        >
+                          <LinearGradient
+                            colors={['#3B82F6', '#2563EB']}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                            style={{
+                              borderRadius: 14,
+                              paddingVertical: 14,
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            <MessageCircle size={18} color="#fff" strokeWidth={2.5} />
+                            <Text style={{ color: '#fff', fontSize: 14, fontWeight: '800', marginLeft: 10 }}>Chat</Text>
+                          </LinearGradient>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </LinearGradient>
                 </View>
-              </LinearGradient>
-            );
-          })}
-        </View>
+              )}
+            />
+
+            {/* Carousel dots */}
+            {pagedFarmers.length > 1 && (
+              <View style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginTop: 8,
+              }}>
+                {pagedFarmers.map((_, idx) => (
+                  <View
+                    key={`${resultsPage}-${idx}`}
+                    style={{
+                      width: idx === carouselIndex ? 18 : 8,
+                      height: 8,
+                      borderRadius: 4,
+                      backgroundColor: idx === carouselIndex ? '#2563EB' : '#D1D5DB',
+                      marginHorizontal: 4,
+                    }}
+                  />
+                ))}
+              </View>
+            )}
+          </View>
         )}
 
         {/* Hired Farmers Section */}
@@ -1150,7 +1335,261 @@ export const ContactFarmerScreen = () => {
             ))}
           </View>
         )}
+
+        {/* Accepted Deals Section (Bottom) */}
+        {acceptedDeals.length > 0 && (
+          <View style={{ paddingHorizontal: 24, marginTop: 24 }}>
+            <Text style={{
+              color: '#111827',
+              fontSize: 22,
+              fontWeight: '800',
+              marginBottom: 14,
+              letterSpacing: -0.3,
+            }}>
+              Accepted Deals ({acceptedDeals.length})
+            </Text>
+
+            <FlatList
+              ref={(r) => {
+                acceptedDealsListRef.current = r;
+              }}
+              data={acceptedDeals.slice(0, 10)}
+              keyExtractor={(item) => item.id}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              onMomentumScrollEnd={(e) => {
+                const x = e.nativeEvent.contentOffset.x;
+                const idx = Math.round(x / acceptedDealsCarouselWidth);
+                setAcceptedDealsIndex(idx);
+              }}
+              renderItem={({ item: deal }) => (
+                <View style={{ width: acceptedDealsCarouselWidth }}>
+                  <View
+                    style={{
+                      backgroundColor: '#ECFDF5',
+                      borderRadius: 18,
+                      padding: 16,
+                      borderWidth: 1,
+                      borderColor: '#A7F3D0',
+                    }}
+                  >
+                    <Text style={{ color: '#111827', fontSize: 16, fontWeight: '800' }}>
+                      {deal.productName}
+                    </Text>
+                    <Text style={{ color: '#374151', marginTop: 8, fontWeight: '700' }}>
+                      Farmer: {deal.farmerName} • {deal.farmerPhone}
+                      {deal.farmerLocation ? ` • ${deal.farmerLocation}` : ''}
+                    </Text>
+                    <Text style={{ color: '#374151', marginTop: 6, fontWeight: '700' }}>
+                      Buyer: {deal.buyerName} • {deal.buyerPhone}
+                      {deal.buyerLocation ? ` • ${deal.buyerLocation}` : ''}
+                    </Text>
+                    <Text style={{ color: '#374151', marginTop: 6 }}>
+                      Qty: {deal.offerQuantity} {deal.unit} • Price: ₹{deal.offerPrice}
+                    </Text>
+
+                    <View style={{ flexDirection: 'row', marginTop: 14 }}>
+                      <TouchableOpacity
+                        onPress={() => handlePhoneCall(deal.farmerPhone)}
+                        activeOpacity={0.85}
+                        style={{ flex: 1, marginRight: 10 }}
+                      >
+                        <LinearGradient
+                          colors={['#10B981', '#059669']}
+                          style={{
+                            borderRadius: 14,
+                            paddingVertical: 12,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <Phone size={18} color="#fff" strokeWidth={2.5} />
+                          <Text style={{ color: '#fff', fontSize: 14, fontWeight: '800', marginLeft: 8 }}>
+                            Call
+                          </Text>
+                        </LinearGradient>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        onPress={() => handleChat(deal.farmerName, deal.farmerPhone)}
+                        activeOpacity={0.85}
+                        style={{ flex: 1 }}
+                      >
+                        <LinearGradient
+                          colors={['#3B82F6', '#2563EB']}
+                          style={{
+                            borderRadius: 14,
+                            paddingVertical: 12,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <MessageCircle size={18} color="#fff" strokeWidth={2.5} />
+                          <Text style={{ color: '#fff', fontSize: 14, fontWeight: '800', marginLeft: 8 }}>
+                            Chat
+                          </Text>
+                        </LinearGradient>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+              )}
+            />
+
+            {acceptedDeals.slice(0, 10).length > 1 && (
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginTop: 10,
+                }}
+              >
+                {acceptedDeals.slice(0, 10).map((_, idx) => (
+                  <View
+                    key={`accepted-deal-${idx}`}
+                    style={{
+                      width: idx === acceptedDealsIndex ? 18 : 8,
+                      height: 8,
+                      borderRadius: 4,
+                      backgroundColor: idx === acceptedDealsIndex ? '#2563EB' : '#D1D5DB',
+                      marginHorizontal: 4,
+                    }}
+                  />
+                ))}
+              </View>
+            )}
+          </View>
+        )}
       </ScrollView>
+
+      {/* Notifications Modal */}
+      <Modal
+        visible={showBuyerNotificationsModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowBuyerNotificationsModal(false)}
+      >
+        <View className="flex-1 bg-black/50 justify-end">
+          <View className="bg-white rounded-t-3xl p-6" style={{ maxHeight: '85%' }}>
+            <View className="flex-row items-center justify-between mb-4">
+              <Text className="text-gray-900 text-2xl font-bold">
+                {tr('contactFarmer.notificationsTitle', 'Notifications')}
+              </Text>
+              <TouchableOpacity
+                onPress={() => setShowBuyerNotificationsModal(false)}
+                className="bg-gray-200 rounded-full w-10 h-10 items-center justify-center"
+              >
+                <X size={20} color="#374151" strokeWidth={2} />
+              </TouchableOpacity>
+            </View>
+
+            {unreadBuyerUpdates.length > 0 && (
+              <TouchableOpacity
+                onPress={async () => {
+                  await dismissBuyerDeals(unreadBuyerUpdates.map((d) => d.id));
+                }}
+                activeOpacity={0.85}
+                style={{
+                  backgroundColor: '#E0E7FF',
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  borderRadius: 12,
+                  alignItems: 'center',
+                  marginBottom: 12,
+                }}
+              >
+                <Text style={{ color: '#4338CA', fontWeight: '800' }}>
+                  {tr('contactFarmer.markAllRead', 'Mark all read')}
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {buyerDealUpdatesSorted.length === 0 ? (
+                <View style={{ paddingVertical: 24 }}>
+                  <Text style={{ color: '#6B7280', fontSize: 15, fontWeight: '600' }}>
+                    {tr('contactFarmer.noNotificationsYet', 'No notifications yet.')}
+                  </Text>
+                </View>
+              ) : (
+                buyerDealUpdatesSorted.map((deal) => (
+                  <View
+                    key={deal.id}
+                    style={{
+                      backgroundColor: deal.status === 'accepted' ? '#ECFDF5' : '#FEF2F2',
+                      borderRadius: 18,
+                      padding: 16,
+                      marginBottom: 12,
+                      borderWidth: 1,
+                      borderColor: deal.status === 'accepted' ? '#A7F3D0' : '#FECACA',
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={{ color: '#111827', fontSize: 16, fontWeight: '800' }}>
+                        {deal.productName}
+                      </Text>
+                      <View
+                        style={{
+                          backgroundColor: deal.status === 'accepted' ? '#DBEAFE' : '#FEE2E2',
+                          borderRadius: 999,
+                          paddingHorizontal: 10,
+                          paddingVertical: 6,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: deal.status === 'accepted' ? '#1D4ED8' : '#991B1B',
+                            fontWeight: '800',
+                            fontSize: 12,
+                          }}
+                        >
+                          {deal.status === 'pending'
+                            ? tr('common.status.pending', 'PENDING')
+                            : deal.status === 'accepted'
+                              ? tr('common.status.accepted', 'ACCEPTED')
+                              : tr('common.status.rejected', 'REJECTED')}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <Text style={{ color: '#374151', marginTop: 8 }}>
+                      {tr('contactFarmer.farmerLabel', 'Farmer')}: {deal.farmerName} • {deal.farmerPhone}
+                      {deal.farmerLocation ? ` • ${deal.farmerLocation}` : ''}
+                    </Text>
+
+                    <Text style={{ color: '#374151', marginTop: 6 }}>
+                      {deal.kind === 'negotiation'
+                        ? tr('contactFarmer.negotiation', 'Negotiation')
+                        : tr('contactFarmer.requestToBuy', 'Request to Buy')} • {tr('contactFarmer.qtyShort', 'Qty')}: {deal.offerQuantity} {deal.unit} • {tr('contactFarmer.price', 'Price')}: ₹{deal.offerPrice}
+                    </Text>
+
+                    {/* No Call/Chat buttons inside notification cards */}
+
+                    <TouchableOpacity
+                      onPress={() => dismissBuyerDeal(deal.id)}
+                      activeOpacity={0.85}
+                      style={{ marginTop: 12 }}
+                    >
+                      <LinearGradient
+                        colors={['#111827', '#374151']}
+                        style={{ borderRadius: 12, paddingVertical: 12, alignItems: 'center' }}
+                      >
+                        <Text style={{ color: '#fff', fontSize: 13, fontWeight: '800' }}>
+                          {tr('contactFarmer.markAsRead', 'Mark as read')}
+                        </Text>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </View>
+                ))
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       {/* Crop Type Modal */}
       <Modal
@@ -1194,7 +1633,7 @@ export const ContactFarmerScreen = () => {
                       ? 'text-blue-600 font-bold'
                       : 'text-gray-900 font-medium'
                   }`}>
-                    {crop === 'Other' ? 'Other (type anything)' : crop}
+                    {crop === 'Other' ? 'Other (type anything)' : toSingularCropLabel(crop)}
                   </Text>
                 </TouchableOpacity>
               ))}

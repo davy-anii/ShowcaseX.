@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
   ScrollView,
+  FlatList,
   TouchableOpacity,
   SafeAreaView,
   Linking,
@@ -11,6 +12,7 @@ import {
   Modal,
   TextInput,
   ActivityIndicator,
+  Dimensions,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
@@ -46,8 +48,11 @@ import {
   rejectMarketDeal,
   MarketDeal,
 } from '../services/products';
+import { markFarmerDealSeen } from '../services/products';
 import { validateProductUpload } from '../services/gemini';
 import { INDIA_LOCATIONS } from '../constants/locations';
+import { detectCurrentLocation } from '../services/location';
+import { fetchCurrentUserProfile } from '../services/auth';
 
 
 type ContactBuyerNavigationProp = NativeStackNavigationProp<
@@ -77,6 +82,11 @@ interface FarmerProduct {
 export const ContactBuyerScreen = () => {
   const { t, i18n } = useTranslation();
   const navigation = useNavigation<ContactBuyerNavigationProp>();
+
+  const screenWidth = Dimensions.get('window').width;
+  const acceptedDealsCarouselWidth = Math.max(1, screenWidth - 48);
+  const acceptedDealsListRef = useRef<FlatList<MarketDeal> | null>(null);
+  const [acceptedDealsIndex, setAcceptedDealsIndex] = useState(0);
   
   const [notifications, setNotifications] = useState(0);
   const [marketDeals, setMarketDeals] = useState<MarketDeal[]>([]);
@@ -93,6 +103,7 @@ export const ContactBuyerScreen = () => {
   const [uploadedProducts, setUploadedProducts] = useState<FarmerProduct[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [showNotificationsModal, setShowNotificationsModal] = useState(false);
 
   // Fetch products + deal notifications after auth is ready
   useEffect(() => {
@@ -102,6 +113,61 @@ export const ContactBuyerScreen = () => {
     });
     return unsub;
   }, []);
+
+  // Auto-detect farmer location when upload modal is opened
+  useEffect(() => {
+    if (!showUploadModal) return;
+
+    const detectLocation = async () => {
+      try {
+        const result = await detectCurrentLocation();
+        if (result.ok && result.location.sortKey) {
+          // Try to match with INDIA_LOCATIONS
+          const match = INDIA_LOCATIONS.find(
+            (loc) =>
+              loc.toLowerCase() === result.location.sortKey?.toLowerCase() ||
+              loc.toLowerCase().includes(result.location.sortKey?.toLowerCase() || '')
+          );
+          if (match) {
+            setSelectedFarmerLocation(match);
+            setCustomFarmerLocation('');
+          } else {
+            // Use the formatted location or sortKey as custom
+            setSelectedFarmerLocation('Other');
+            setCustomFarmerLocation(result.location.formatted || result.location.sortKey);
+          }
+          return;
+        }
+
+        // If detection fails, try fetching from profile (fallback)
+        const user = auth.currentUser;
+        if (!user) return;
+        const profileRes = await fetchCurrentUserProfile();
+        if (profileRes.success && (profileRes.profile?.state || profileRes.profile?.district)) {
+          const district = profileRes.profile?.district?.trim();
+          const state = profileRes.profile?.state?.trim();
+          const derived = district && state ? `${district}, ${state}` : state || district || '';
+          if (derived) {
+            const match = INDIA_LOCATIONS.find(
+              (loc) => loc.toLowerCase() === derived.toLowerCase() || loc.toLowerCase().includes(derived.toLowerCase())
+            );
+            if (match) {
+              setSelectedFarmerLocation(match);
+            } else {
+              setSelectedFarmerLocation('Other');
+              setCustomFarmerLocation(derived);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error detecting location for upload modal:', error);
+        // Silently fail - location is optional for farmer upload
+      }
+    };
+
+    // Don't block UI; best-effort.
+    detectLocation();
+  }, [showUploadModal]);
 
   const loadProducts = async () => {
     try {
@@ -150,12 +216,63 @@ export const ContactBuyerScreen = () => {
 
       const deals = await getFarmerMarketDeals(user.uid);
       setMarketDeals(deals);
-      const pending = deals.filter((d) => d.status === 'pending');
-      setNotifications(pending.length);
+      const pendingUnseen = deals.filter((d) => d.status === 'pending' && d.farmerSeen !== true);
+      setNotifications(pendingUnseen.length);
     } catch {
       setMarketDeals([]);
       setNotifications(0);
     }
+  };
+
+  // Keep badge count derived from deals so it stays correct after reload.
+  useEffect(() => {
+    const pendingUnseen = marketDeals.filter((d) => d.status === 'pending' && d.farmerSeen !== true);
+    setNotifications(pendingUnseen.length);
+  }, [marketDeals]);
+
+  const dismissFarmerNotification = async (dealId: string) => {
+    try {
+      // Optimistically mark as read so it disappears from notification list.
+      setMarketDeals((prev) =>
+        prev.map((d) => (d.id === dealId ? ({ ...d, farmerSeen: true } as any) : d))
+      );
+
+      // Mark as read in backend
+      await markFarmerDealSeen(dealId);
+      // Sync once to avoid reappearing after app restart.
+      await loadMarketDeals();
+    } catch (error) {
+      console.error('Error marking as read:', error);
+      Alert.alert(tr('contactBuyer.error', 'Error'), tr('contactBuyer.failedToMarkRead', 'Failed to mark as read'));
+      // Reload to sync if there was an error
+      await loadMarketDeals();
+    }
+  };
+
+  const markAllFarmerNotificationsRead = async () => {
+    const idsToMark = farmerNotificationDeals.map((d) => d.id);
+    if (idsToMark.length === 0) return;
+
+    try {
+      // Optimistically mark all as read
+      setMarketDeals((prev) =>
+        prev.map((d) => (idsToMark.includes(d.id) ? ({ ...d, farmerSeen: true } as any) : d))
+      );
+
+      // Mark all as read in backend
+      await Promise.all(idsToMark.map((id) => markFarmerDealSeen(id)));
+      await loadMarketDeals();
+    } catch (error) {
+      console.error('Error marking all as read:', error);
+      Alert.alert(tr('contactBuyer.error', 'Error'), tr('contactBuyer.failedToMarkAllRead', 'Failed to mark all as read'));
+      // Reload to sync if there was an error
+      await loadMarketDeals();
+    }
+  };
+
+  const openNotifications = async () => {
+    // Do NOT auto-mark as read on open; user controls "Mark as read".
+    setShowNotificationsModal(true);
   };
 
   const tr = (key: string, fallback: string) => {
@@ -467,9 +584,15 @@ export const ContactBuyerScreen = () => {
       await acceptMarketDeal(deal);
       await loadProducts();
       await loadMarketDeals();
-      Alert.alert('Success', 'Offer accepted. Buyer has been notified.');
+      Alert.alert(
+        tr('contactBuyer.success', 'Success'),
+        tr('contactBuyer.offerAccepted', 'Offer accepted. Buyer has been notified.')
+      );
     } catch (e: any) {
-      Alert.alert('Error', e?.message || 'Failed to accept offer');
+      Alert.alert(
+        tr('contactBuyer.error', 'Error'),
+        e?.message || tr('contactBuyer.failedToAcceptOffer', 'Failed to accept offer')
+      );
     }
   };
 
@@ -477,13 +600,36 @@ export const ContactBuyerScreen = () => {
     try {
       await rejectMarketDeal(deal.id);
       await loadMarketDeals();
-      Alert.alert('Updated', 'Offer rejected. Buyer has been notified.');
+      Alert.alert(
+        tr('contactBuyer.updated', 'Updated'),
+        tr('contactBuyer.offerRejected', 'Offer rejected. Buyer has been notified.')
+      );
     } catch (e: any) {
-      Alert.alert('Error', e?.message || 'Failed to reject offer');
+      Alert.alert(
+        tr('contactBuyer.error', 'Error'),
+        e?.message || tr('contactBuyer.failedToRejectOffer', 'Failed to reject offer')
+      );
     }
   };
 
   const pendingDeals = marketDeals.filter((d) => d.status === 'pending');
+  const dealsSorted = [...marketDeals].sort(
+    (a, b) => (b.updatedAt?.toMillis?.() ?? 0) - (a.updatedAt?.toMillis?.() ?? 0)
+  );
+  const farmerNotificationDeals = useMemo(() => {
+    return [...marketDeals]
+      .filter((d) => d.status === 'pending' && d.farmerSeen !== true)
+      .sort((a, b) => (b.updatedAt?.toMillis?.() ?? 0) - (a.updatedAt?.toMillis?.() ?? 0));
+  }, [marketDeals]);
+  const acceptedDeals = useMemo(
+    () => marketDeals.filter((d) => d.status === 'accepted'),
+    [marketDeals]
+  );
+
+  useEffect(() => {
+    setAcceptedDealsIndex(0);
+    acceptedDealsListRef.current?.scrollToOffset({ offset: 0, animated: false });
+  }, [acceptedDeals.length]);
 
   return (
     <SafeAreaView className="flex-1" style={{ backgroundColor: '#FFFFFF' }}>
@@ -547,48 +693,56 @@ export const ContactBuyerScreen = () => {
                 {tr('contactBuyer.subtitle', 'Connect with interested buyers')}
               </Text>
             </View>
-            {notifications > 0 && (
-              <View style={{
-                position: 'relative',
-              }}>
-                <LinearGradient
-                  colors={['#F97316', '#EA580C']}
-                  style={{
-                    borderRadius: 30,
-                    width: 56,
-                    height: 56,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    shadowColor: '#F97316',
-                    shadowOffset: { width: 0, height: 4 },
-                    shadowOpacity: 0.4,
-                    shadowRadius: 8,
-                    elevation: 6,
-                  }}
-                >
-                  <Bell size={26} color="#fff" strokeWidth={2.5} />
-                </LinearGradient>
-                <View style={{
-                  position: 'absolute',
-                  top: -4,
-                  right: -4,
-                  backgroundColor: '#EF4444',
-                  borderRadius: 12,
-                  width: 24,
-                  height: 24,
+            <TouchableOpacity
+              onPress={openNotifications}
+              activeOpacity={0.85}
+              style={{ position: 'relative' }}
+            >
+              <LinearGradient
+                colors={['#F97316', '#EA580C']}
+                style={{
+                  borderRadius: 30,
+                  width: 56,
+                  height: 56,
                   alignItems: 'center',
                   justifyContent: 'center',
-                  borderWidth: 2,
-                  borderColor: '#fff',
-                }}>
-                  <Text style={{
-                    color: '#fff',
-                    fontSize: 11,
-                    fontWeight: '800',
-                  }}>{notifications}</Text>
+                  shadowColor: '#F97316',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.4,
+                  shadowRadius: 8,
+                  elevation: 6,
+                }}
+              >
+                <Bell size={26} color="#fff" strokeWidth={2.5} />
+              </LinearGradient>
+              {notifications > 0 && (
+                <View
+                  style={{
+                    position: 'absolute',
+                    top: -4,
+                    right: -4,
+                    backgroundColor: '#EF4444',
+                    borderRadius: 12,
+                    width: 24,
+                    height: 24,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    borderWidth: 2,
+                    borderColor: '#fff',
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: '#fff',
+                      fontSize: 11,
+                      fontWeight: '800',
+                    }}
+                  >
+                    {notifications}
+                  </Text>
                 </View>
-              </View>
-            )}
+              )}
+            </TouchableOpacity>
           </View>
         </LinearGradient>
 
@@ -796,106 +950,130 @@ export const ContactBuyerScreen = () => {
           )}
         </View>
 
-        {/* Incoming Requests / Negotiations (Market Deals) */}
-        {pendingDeals.length > 0 && (
-          <View style={{ paddingHorizontal: 24, marginTop: 8 }}>
-            <Text
-              style={{
-                color: '#111827',
-                fontSize: 22,
-                fontWeight: '800',
-                marginBottom: 14,
-                letterSpacing: -0.3,
-              }}
-            >
-              Incoming Requests ({pendingDeals.length})
+        {/* Accepted Deals Section */}
+        {acceptedDeals.length > 0 && (
+          <View style={{ paddingHorizontal: 24, marginTop: 24 }}>
+            <Text style={{
+              color: '#111827',
+              fontSize: 22,
+              fontWeight: '800',
+              marginBottom: 14,
+              letterSpacing: -0.3,
+            }}>
+              Accepted Deals ({acceptedDeals.length})
             </Text>
 
-            {pendingDeals.slice(0, 8).map((deal) => (
+            <FlatList
+              ref={(r) => {
+                acceptedDealsListRef.current = r;
+              }}
+              data={acceptedDeals.slice(0, 10)}
+              keyExtractor={(item) => item.id}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              onMomentumScrollEnd={(e) => {
+                const x = e.nativeEvent.contentOffset.x;
+                const idx = Math.round(x / acceptedDealsCarouselWidth);
+                setAcceptedDealsIndex(idx);
+              }}
+              renderItem={({ item: deal }) => (
+                <View style={{ width: acceptedDealsCarouselWidth }}>
+                  <LinearGradient
+                    colors={['#ECFDF5', '#D1FAE5']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 0, y: 1 }}
+                    style={{
+                      borderRadius: 18,
+                      padding: 16,
+                      borderWidth: 1,
+                      borderColor: '#10B981',
+                    }}
+                  >
+                    <Text style={{ color: '#111827', fontSize: 16, fontWeight: '800' }}>
+                      {deal.productName}
+                    </Text>
+                    <Text style={{ color: '#374151', marginTop: 8, fontWeight: '700' }}>
+                      Buyer: {deal.buyerName} • {deal.buyerPhone}
+                      {deal.buyerLocation ? ` • ${deal.buyerLocation}` : ''}
+                    </Text>
+                    <Text style={{ color: '#374151', marginTop: 6 }}>
+                      {deal.kind === 'negotiation' ? 'Negotiation' : 'Request to Buy'} • Qty: {deal.offerQuantity} {deal.unit} • Price: ₹{deal.offerPrice}
+                    </Text>
+
+                    <View style={{ flexDirection: 'row', marginTop: 14 }}>
+                      <TouchableOpacity
+                        onPress={() => handlePhoneCall(deal.buyerPhone)}
+                        activeOpacity={0.85}
+                        style={{ flex: 1, marginRight: 10 }}
+                      >
+                        <LinearGradient
+                          colors={['#10B981', '#059669']}
+                          style={{
+                            borderRadius: 14,
+                            paddingVertical: 12,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <Phone size={18} color="#fff" strokeWidth={2.5} />
+                          <Text style={{ color: '#fff', fontSize: 14, fontWeight: '800', marginLeft: 8 }}>
+                            Call
+                          </Text>
+                        </LinearGradient>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        onPress={() => handleChat(deal.buyerName, deal.buyerPhone)}
+                        activeOpacity={0.85}
+                        style={{ flex: 1 }}
+                      >
+                        <LinearGradient
+                          colors={['#3B82F6', '#2563EB']}
+                          style={{
+                            borderRadius: 14,
+                            paddingVertical: 12,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <MessageCircle size={18} color="#fff" strokeWidth={2.5} />
+                          <Text style={{ color: '#fff', fontSize: 14, fontWeight: '800', marginLeft: 8 }}>
+                            Chat
+                          </Text>
+                        </LinearGradient>
+                      </TouchableOpacity>
+                    </View>
+                  </LinearGradient>
+                </View>
+              )}
+            />
+
+            {acceptedDeals.slice(0, 10).length > 1 && (
               <View
-                key={deal.id}
                 style={{
-                  backgroundColor: '#F0FDF4',
-                  borderRadius: 18,
-                  padding: 16,
-                  marginBottom: 12,
-                  borderWidth: 1,
-                  borderColor: '#BBF7D0',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginTop: 10,
                 }}
               >
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={{ color: '#111827', fontSize: 16, fontWeight: '800' }}>
-                    {deal.kind === 'negotiation' ? 'Negotiation Offer' : 'Request to Buy'}
-                  </Text>
+                {acceptedDeals.slice(0, 10).map((_, idx) => (
                   <View
+                    key={`accepted-${idx}`}
                     style={{
-                      backgroundColor: deal.kind === 'negotiation' ? '#DBEAFE' : '#FEF3C7',
-                      borderRadius: 999,
-                      paddingHorizontal: 10,
-                      paddingVertical: 6,
+                      width: idx === acceptedDealsIndex ? 18 : 8,
+                      height: 8,
+                      borderRadius: 4,
+                      backgroundColor: idx === acceptedDealsIndex ? '#059669' : '#D1D5DB',
+                      marginHorizontal: 4,
                     }}
-                  >
-                    <Text
-                      style={{
-                        color: deal.kind === 'negotiation' ? '#1D4ED8' : '#92400E',
-                        fontWeight: '800',
-                        fontSize: 12,
-                      }}
-                    >
-                      {deal.kind === 'negotiation' ? 'NEGOTIATION' : 'REQUEST'}
-                    </Text>
-                  </View>
-                </View>
-
-                <Text style={{ color: '#111827', marginTop: 10, fontSize: 15, fontWeight: '800' }}>
-                  {deal.buyerName}
-                </Text>
-                <Text style={{ color: '#374151', marginTop: 4 }}>
-                  {deal.buyerPhone}
-                  {deal.buyerLocation ? ` • ${deal.buyerLocation}` : ''}
-                </Text>
-
-                <View style={{ marginTop: 10 }}>
-                  <Text style={{ color: '#111827', fontWeight: '800' }}>
-                    {deal.productName}
-                  </Text>
-                  <Text style={{ color: '#374151', marginTop: 4 }}>
-                    Quantity: {deal.offerQuantity} {deal.unit}
-                  </Text>
-                  <Text style={{ color: '#374151', marginTop: 4 }}>
-                    Price: ₹{deal.offerPrice}
-                  </Text>
-                </View>
-
-                <View style={{ flexDirection: 'row', marginTop: 14, justifyContent: 'flex-end' }}>
-                  <TouchableOpacity
-                    onPress={() => handleRejectMarketDeal(deal)}
-                    activeOpacity={0.85}
-                    style={{
-                      backgroundColor: '#DC2626',
-                      borderRadius: 12,
-                      paddingVertical: 10,
-                      paddingHorizontal: 14,
-                      marginRight: 10,
-                    }}
-                  >
-                    <Text style={{ color: '#fff', fontWeight: '800' }}>Reject</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => handleAcceptMarketDeal(deal)}
-                    activeOpacity={0.85}
-                    style={{
-                      backgroundColor: '#16A34A',
-                      borderRadius: 12,
-                      paddingVertical: 10,
-                      paddingHorizontal: 14,
-                    }}
-                  >
-                    <Text style={{ color: '#fff', fontWeight: '800' }}>Accept</Text>
-                  </TouchableOpacity>
-                </View>
+                  />
+                ))}
               </View>
-            ))}
+            )}
           </View>
         )}
 
@@ -1130,6 +1308,206 @@ export const ContactBuyerScreen = () => {
         </View>
       </ScrollView>
 
+      {/* Notifications Modal */}
+      <Modal
+        visible={showNotificationsModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowNotificationsModal(false)}
+      >
+        <View className="flex-1 bg-black/50 justify-end">
+          <View className="bg-white rounded-t-3xl p-6" style={{ maxHeight: '85%' }}>
+            <View className="flex-row items-center justify-between mb-4">
+              <Text className="text-gray-900 text-2xl font-bold">
+                {tr('contactBuyer.notificationsTitle', 'Notifications')}
+              </Text>
+              <TouchableOpacity
+                onPress={() => setShowNotificationsModal(false)}
+                className="bg-gray-200 rounded-full w-10 h-10 items-center justify-center"
+              >
+                <X size={20} color="#374151" strokeWidth={2} />
+              </TouchableOpacity>
+            </View>
+
+            {farmerNotificationDeals.length > 0 && (
+              <TouchableOpacity
+                onPress={markAllFarmerNotificationsRead}
+                activeOpacity={0.85}
+                style={{
+                  backgroundColor: '#E0E7FF',
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  borderRadius: 12,
+                  alignItems: 'center',
+                  marginBottom: 12,
+                }}
+              >
+                <Text style={{ color: '#4338CA', fontWeight: '800' }}>
+                  {tr('contactBuyer.markAllRead', 'Mark all as read')}
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {farmerNotificationDeals.length === 0 ? (
+                <View style={{ paddingVertical: 24 }}>
+                  <Text style={{ color: '#6B7280', fontSize: 15, fontWeight: '600' }}>
+                    {tr('contactBuyer.noNotificationsYet', 'No notifications yet.')}
+                  </Text>
+                </View>
+              ) : (
+                farmerNotificationDeals.map((deal) => (
+                  <View
+                    key={deal.id}
+                    style={{
+                      backgroundColor:
+                        deal.status === 'pending'
+                          ? '#F0FDF4'
+                          : deal.status === 'accepted'
+                            ? '#ECFDF5'
+                            : '#FEF2F2',
+                      borderRadius: 18,
+                      padding: 16,
+                      marginBottom: 12,
+                      borderWidth: 1,
+                      borderColor:
+                        deal.status === 'pending'
+                          ? '#BBF7D0'
+                          : deal.status === 'accepted'
+                            ? '#A7F3D0'
+                            : '#FECACA',
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={{ color: '#111827', fontSize: 16, fontWeight: '800' }}>
+                        {deal.kind === 'negotiation'
+                          ? tr('contactBuyer.negotiationOffer', 'Negotiation Offer')
+                          : tr('contactBuyer.requestToBuy', 'Request to Buy')}
+                      </Text>
+                      <View
+                        style={{
+                          backgroundColor:
+                            deal.status === 'pending'
+                              ? '#FEF3C7'
+                              : deal.status === 'accepted'
+                                ? '#DBEAFE'
+                                : '#FEE2E2',
+                          borderRadius: 999,
+                          paddingHorizontal: 10,
+                          paddingVertical: 6,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color:
+                              deal.status === 'pending'
+                                ? '#92400E'
+                                : deal.status === 'accepted'
+                                  ? '#1D4ED8'
+                                  : '#991B1B',
+                            fontWeight: '800',
+                            fontSize: 12,
+                          }}
+                        >
+                          {deal.status === 'pending'
+                            ? tr('common.status.pending', 'PENDING')
+                            : deal.status === 'accepted'
+                              ? tr('common.status.accepted', 'ACCEPTED')
+                              : tr('common.status.rejected', 'REJECTED')}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <Text style={{ color: '#111827', marginTop: 10, fontSize: 15, fontWeight: '800' }}>
+                      {deal.buyerName}
+                    </Text>
+                    <Text style={{ color: '#374151', marginTop: 4 }}>
+                      {deal.buyerPhone}
+                      {deal.buyerLocation ? ` • ${deal.buyerLocation}` : ''}
+                    </Text>
+
+                    <View style={{ marginTop: 10 }}>
+                      <Text style={{ color: '#111827', fontWeight: '800' }}>{deal.productName}</Text>
+                      <Text style={{ color: '#374151', marginTop: 4 }}>
+                        {tr('contactBuyer.quantity', 'Quantity')}: {deal.offerQuantity} {deal.unit}
+                      </Text>
+                      <Text style={{ color: '#374151', marginTop: 4 }}>
+                        {tr('contactBuyer.price', 'Price')}: ₹{deal.offerPrice}
+                      </Text>
+                    </View>
+
+                    {deal.status === 'pending' && (
+                      <View style={{ flexDirection: 'row', marginTop: 14, justifyContent: 'flex-end', gap: 10 }}>
+                        <TouchableOpacity
+                          onPress={() => handleRejectMarketDeal(deal)}
+                          activeOpacity={0.85}
+                          style={{
+                            backgroundColor: '#DC2626',
+                            borderRadius: 12,
+                            paddingVertical: 10,
+                            paddingHorizontal: 14,
+                            flex: 1,
+                          }}
+                        >
+                          <Text style={{ color: '#fff', fontWeight: '800', textAlign: 'center' }}>
+                            {tr('contactBuyer.reject', 'Reject')}
+                          </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => handleAcceptMarketDeal(deal)}
+                          activeOpacity={0.85}
+                          style={{
+                            backgroundColor: '#16A34A',
+                            borderRadius: 12,
+                            paddingVertical: 10,
+                            paddingHorizontal: 14,
+                            flex: 1,
+                          }}
+                        >
+                          {deal.kind === 'negotiation' ? (
+                            <View style={{ alignItems: 'center' }}>
+                              <Text style={{ color: '#fff', fontWeight: '800', textAlign: 'center' }}>
+                                {tr('contactBuyer.acceptNegotiation', 'Accept Negotiation')}
+                              </Text>
+                              <Text style={{ color: 'rgba(255,255,255,0.92)', fontWeight: '800', fontSize: 12 }}>
+                                ({tr('contactBuyer.accept', 'Accept')})
+                              </Text>
+                            </View>
+                          ) : (
+                            <Text style={{ color: '#fff', fontWeight: '800', textAlign: 'center' }}>
+                              {tr('contactBuyer.accept', 'Accept')}
+                            </Text>
+                          )}
+                        </TouchableOpacity>
+                      </View>
+                    )}
+
+                    <TouchableOpacity
+                      onPress={() => dismissFarmerNotification(deal.id)}
+                      activeOpacity={0.85}
+                      style={{ marginTop: 12 }}
+                    >
+                      <LinearGradient
+                        colors={['#6B7280', '#4B5563']}
+                        style={{
+                          borderRadius: 12,
+                          paddingVertical: 12,
+                          alignItems: 'center',
+                        }}
+                      >
+                        <Text style={{ color: '#fff', fontSize: 14, fontWeight: '800' }}>
+                          {tr('contactBuyer.markAsRead', 'Mark as read')}
+                        </Text>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </View>
+                ))
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
       {/* Upload Product Modal */}
       <Modal
         visible={showUploadModal}
@@ -1188,41 +1566,6 @@ export const ContactBuyerScreen = () => {
                 value={productName}
                 onChangeText={setProductName}
               />
-
-              {/* Farmer Location */}
-              <Text className="text-gray-700 font-semibold mb-2">
-                {tr('contactBuyer.location', 'Location')}
-              </Text>
-              <TouchableOpacity
-                onPress={() => setShowFarmerLocationModal(true)}
-                activeOpacity={0.85}
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  backgroundColor: '#F3F4F6',
-                  borderRadius: 12,
-                  padding: 14,
-                  borderWidth: 1,
-                  borderColor: '#E5E7EB',
-                  marginBottom: 14,
-                }}
-              >
-                <Text style={{
-                  color:
-                    (selectedFarmerLocation === 'Other' && customFarmerLocation) || selectedFarmerLocation
-                      ? '#111827'
-                      : '#9CA3AF',
-                  fontSize: 15,
-                  fontWeight: '600',
-                  flex: 1,
-                }}>
-                  {(selectedFarmerLocation === 'Other' && customFarmerLocation
-                    ? customFarmerLocation
-                    : selectedFarmerLocation) || 'Select farmer location'}
-                </Text>
-                <ChevronDown size={20} color="#6B7280" strokeWidth={2} />
-              </TouchableOpacity>
 
               {/* Rate */}
               <Text className="text-gray-700 font-semibold mb-2">
