@@ -48,10 +48,40 @@ export interface ChatThread {
 export interface ChatMessage {
   id: string;
   text: string;
+  type?: 'text' | 'location';
+  location?: {
+    lat: number;
+    lng: number;
+  };
   senderId: string;
   createdAt: Timestamp;
   createdAtServer?: unknown;
 }
+
+const updateThreadAfterMessage = async (args: {
+  threadId: string;
+  createdAt: Timestamp;
+  lastMessageText: string;
+}): Promise<void> => {
+  const user = auth.currentUser;
+  if (!user) return;
+
+  const threadRef = doc(db, 'chats', args.threadId);
+  const threadSnap = await getDoc(threadRef);
+  const participantIds = (threadSnap.data()?.participantIds ?? []) as string[];
+  const otherUid = participantIds.find((id) => id && id !== user.uid);
+
+  const update: Record<string, any> = {
+    lastMessageText: args.lastMessageText,
+    lastMessageAt: args.createdAt,
+    updatedAt: serverTimestamp(),
+  };
+  if (otherUid) {
+    update[`unreadBy.${otherUid}`] = increment(1);
+  }
+
+  await updateDoc(threadRef, update);
+};
 
 const buildThreadId = (args: {
   buyerId: string;
@@ -156,32 +186,58 @@ export const sendChatMessage = async (args: {
     const messagesRef = collection(db, 'chats', args.threadId, 'messages');
     await addDoc(messagesRef, {
       text,
+      type: 'text',
       senderId: user.uid,
       createdAt,
       createdAtServer: serverTimestamp(),
     });
 
-    // Update thread metadata + increment unread for the other participant.
-    const threadRef = doc(db, 'chats', args.threadId);
-    const threadSnap = await getDoc(threadRef);
-    const participantIds = (threadSnap.data()?.participantIds ?? []) as string[];
-    const otherUid = participantIds.find((id) => id && id !== user.uid);
-
-    const update: Record<string, any> = {
+    await updateThreadAfterMessage({
+      threadId: args.threadId,
+      createdAt,
       lastMessageText: text,
-      lastMessageAt: createdAt,
-      updatedAt: serverTimestamp(),
-    };
-    if (otherUid) {
-      update[`unreadBy.${otherUid}`] = increment(1);
-    }
-
-    await updateDoc(threadRef, update);
+    });
 
     return { success: true };
   } catch (e) {
     console.error('sendChatMessage error:', e);
     return { success: false, message: 'Failed to send message.' };
+  }
+};
+
+export const sendChatLocationMessage = async (args: {
+  threadId: string;
+  lat: number;
+  lng: number;
+}): Promise<{ success: true } | { success: false; message: string }> => {
+  const user = auth.currentUser;
+  if (!user) return { success: false, message: 'Not signed in.' };
+
+  try {
+    const createdAt = Timestamp.now();
+    const messagesRef = collection(db, 'chats', args.threadId, 'messages');
+    await addDoc(messagesRef, {
+      text: 'Shared a location',
+      type: 'location',
+      location: {
+        lat: args.lat,
+        lng: args.lng,
+      },
+      senderId: user.uid,
+      createdAt,
+      createdAtServer: serverTimestamp(),
+    });
+
+    await updateThreadAfterMessage({
+      threadId: args.threadId,
+      createdAt,
+      lastMessageText: 'Location',
+    });
+
+    return { success: true };
+  } catch (e) {
+    console.error('sendChatLocationMessage error:', e);
+    return { success: false, message: 'Failed to share location.' };
   }
 };
 

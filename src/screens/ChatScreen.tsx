@@ -10,9 +10,11 @@ import {
   Platform,
   Alert,
   Keyboard,
+  Linking,
 } from 'react-native';
 import {
   ArrowLeft,
+  MapPin,
   Send,
 } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
@@ -25,8 +27,10 @@ import {
   getOrCreateChatThread,
   markChatThreadRead,
   sendChatMessage,
+  sendChatLocationMessage,
   subscribeToChatMessages,
 } from '../services/chat';
+import { detectCurrentLocation } from '../services/location';
 
 type ChatScreenNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -38,6 +42,8 @@ type ChatScreenRouteProp = RouteProp<RootStackParamList, 'Chat'>;
 type UiMessage = {
   id: string;
   text: string;
+  type: 'text' | 'location';
+  location?: { lat: number; lng: number };
   senderId: string;
   createdAt: Date;
 };
@@ -67,6 +73,7 @@ export const ChatScreen = () => {
   const [threadId, setThreadId] = useState<string | null>(null);
   const [loadingThread, setLoadingThread] = useState(false);
   const [messages, setMessages] = useState<UiMessage[]>([]);
+  const [sendingLocation, setSendingLocation] = useState(false);
 
   const tr = (key: string, fallback: string) => {
     try {
@@ -123,6 +130,8 @@ export const ChatScreen = () => {
       const mapped: UiMessage[] = msgs.map((m) => ({
         id: m.id,
         text: m.text,
+        type: (m as any).type === 'location' ? 'location' : 'text',
+        location: (m as any).location,
         senderId: m.senderId,
         createdAt: (m.createdAt?.toDate?.() ?? new Date()) as Date,
       }));
@@ -186,6 +195,48 @@ export const ChatScreen = () => {
     }
   };
 
+  const openInMaps = (lat: number, lng: number) => {
+    const url = `https://www.google.com/maps?q=${lat},${lng}`;
+    Linking.openURL(url).catch(() => {
+      Alert.alert(tr('chat.error', 'Error'), tr('chat.openMapsFailed', 'Unable to open maps.'));
+    });
+  };
+
+  const handleShareLocation = async () => {
+    const user = auth.currentUser;
+    if (!user) {
+      Alert.alert(tr('chat.error', 'Error'), tr('chat.notSignedIn', 'Please sign in again.'));
+      return;
+    }
+    if (!threadId) {
+      Alert.alert(
+        tr('chat.error', 'Error'),
+        tr('chat.missingChatContext', 'Chat is not available for this contact yet.')
+      );
+      return;
+    }
+    if (sendingLocation) return;
+
+    setSendingLocation(true);
+    try {
+      const res = await detectCurrentLocation();
+      if (!res.ok) {
+        Alert.alert(tr('chat.error', 'Error'), tr('chat.locationPermission', 'Please allow location permission.'));
+        return;
+      }
+
+      const lat = res.location.coords.latitude;
+      const lng = res.location.coords.longitude;
+      const sendRes = await sendChatLocationMessage({ threadId, lat, lng });
+      if (!sendRes.success) {
+        Alert.alert(tr('chat.error', 'Error'), sendRes.message);
+        return;
+      }
+    } finally {
+      setSendingLocation(false);
+    }
+  };
+
   const formatTime = (date: Date) => {
     const hours = date.getHours();
     const minutes = date.getMinutes();
@@ -241,7 +292,17 @@ export const ChatScreen = () => {
             </View>
           </View>
           <View className="flex-row items-center">
-            {/* Removed call / video buttons (requested) */}
+            <TouchableOpacity
+              onPress={handleShareLocation}
+              activeOpacity={0.7}
+              disabled={sendingLocation || !threadId}
+              style={{
+                opacity: sendingLocation || !threadId ? 0.5 : 1,
+                padding: 8,
+              }}
+            >
+              <MapPin size={24} color="#fff" strokeWidth={2.5} />
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -282,7 +343,39 @@ export const ChatScreen = () => {
                   elevation: 2,
                 }}
               >
-                <Text className="text-[15.5px] leading-5 text-gray-900">{msg.text}</Text>
+                {msg.type === 'location' && msg.location ? (
+                  <>
+                    <Text className="text-[15.5px] leading-5 text-gray-900">
+                      {tr('chat.locationShared', 'Location shared')}
+                    </Text>
+                    <Text className="text-[13px] text-gray-700 mt-1">
+                      {msg.location.lat.toFixed(6)}, {msg.location.lng.toFixed(6)}
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => openInMaps(msg.location!.lat, msg.location!.lng)}
+                      activeOpacity={0.8}
+                      style={{ marginTop: 10, alignSelf: 'flex-start' }}
+                    >
+                      <View
+                        style={{
+                          backgroundColor: '#128C7E',
+                          paddingHorizontal: 12,
+                          paddingVertical: 8,
+                          borderRadius: 12,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <MapPin size={16} color="#fff" strokeWidth={2.5} />
+                        <Text style={{ color: '#fff', fontWeight: '900', marginLeft: 8 }}>
+                          {tr('chat.openInMaps', 'Open in Maps')}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <Text className="text-[15.5px] leading-5 text-gray-900">{msg.text}</Text>
+                )}
                 <View className="flex-row items-center justify-end mt-1 -mb-0.5">
                   <Text className={`text-[11px] ${isMe ? 'text-gray-600' : 'text-gray-500'}`}>
                     {formatTime(msg.createdAt)}

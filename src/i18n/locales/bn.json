@@ -1029,5 +1029,16 @@
     "error": "ত্রুটি",
     "notSignedIn": "অনুগ্রহ করে আবার সাইন ইন করুন।",
     "openMapsFailed": "ম্যাপ খোলা যাচ্ছে না।"
+  },
+  "chat": {
+    "error": "ত্রুটি",
+    "notSignedIn": "অনুগ্রহ করে আবার সাইন ইন করুন।",
+    "missingChatContext": "এই কন্টাক্টের জন্য চ্যাট এখনও উপলব্ধ নয়।",
+    "typeMessage": "একটি বার্তা লিখুন...",
+    "online": "অনলাইন",
+    "locationPermission": "অনুগ্রহ করে লোকেশন অনুমতি দিন।",
+    "locationShared": "লোকেশন শেয়ার করা হয়েছে",
+    "openInMaps": "ম্যাপে খুলুন",
+    "openMapsFailed": "ম্যাপ খোলা যাচ্ছে না।"
   }
 }

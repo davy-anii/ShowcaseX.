@@ -1011,5 +1011,16 @@
     "error": "त्रुटि",
     "notSignedIn": "कृपया फिर से साइन इन करें।",
     "openMapsFailed": "मैप नहीं खुल पाया।"
+  },
+  "chat": {
+    "error": "त्रुटि",
+    "notSignedIn": "कृपया फिर से साइन इन करें।",
+    "missingChatContext": "इस संपर्क के लिए चैट अभी उपलब्ध नहीं है।",
+    "typeMessage": "संदेश लिखें...",
+    "online": "ऑनलाइन",
+    "locationPermission": "कृपया लोकेशन अनुमति दें।",
+    "locationShared": "लोकेशन शेयर की गई",
+    "openInMaps": "मैप में खोलें",
+    "openMapsFailed": "मैप नहीं खुल पाया।"
   }
 }

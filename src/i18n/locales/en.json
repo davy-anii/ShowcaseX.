@@ -985,5 +985,16 @@
     "error": "Error",
     "notSignedIn": "Please sign in again.",
     "openMapsFailed": "Unable to open maps."
+  },
+  "chat": {
+    "error": "Error",
+    "notSignedIn": "Please sign in again.",
+    "missingChatContext": "Chat is not available for this contact yet.",
+    "typeMessage": "Type a message...",
+    "online": "Online",
+    "locationPermission": "Please allow location permission.",
+    "locationShared": "Location shared",
+    "openInMaps": "Open in Maps",
+    "openMapsFailed": "Unable to open maps."
   }
 }
