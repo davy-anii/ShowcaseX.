@@ -16,7 +16,6 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
-  ArrowLeft,
   Bell,
   Phone,
   MessageCircle,
@@ -30,6 +29,7 @@ import {
   UserCheck,
   RefreshCcw,
 } from 'lucide-react-native';
+import BackButton from '@/components/BackButton';
 import { useTranslation } from 'react-i18next';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -48,6 +48,9 @@ import {
   getBuyerMarketDeals,
   MarketDeal,
   markBuyerDealSeen,
+  acceptMarketDeal,
+  rejectMarketDeal,
+  counterMarketDeal,
 } from '../services/products';
 import { CROP_TYPES } from '../constants/locations';
 import { distanceKmBetweenLocations } from '../utils/locationDistance';
@@ -89,6 +92,8 @@ export const ContactFarmerScreen = () => {
   const acceptedDealsListRef = useRef<FlatList<MarketDeal> | null>(null);
   const [acceptedDealsIndex, setAcceptedDealsIndex] = useState(0);
 
+  const [authReady, setAuthReady] = useState(false);
+  
   // State for search form
   const [cropType, setCropType] = useState('');
   const [customCropType, setCustomCropType] = useState('');
@@ -111,6 +116,13 @@ export const ContactFarmerScreen = () => {
 
   const [showBuyerNotificationsModal, setShowBuyerNotificationsModal] = useState(false);
 
+  // Counter negotiation (buyer responding back)
+  const [showCounterModal, setShowCounterModal] = useState(false);
+  const [counterDeal, setCounterDeal] = useState<MarketDeal | null>(null);
+  const [counterQuantity, setCounterQuantity] = useState('');
+  const [counterPrice, setCounterPrice] = useState('');
+  const [counterSubmitting, setCounterSubmitting] = useState(false);
+
   const [showNegotiationModal, setShowNegotiationModal] = useState(false);
   const [negFarmer, setNegFarmer] = useState<FarmerListing | null>(null);
   const [negProduct, setNegProduct] = useState<FarmerListing['products'][number] | null>(null);
@@ -119,10 +131,22 @@ export const ContactFarmerScreen = () => {
   const [unreadByDealId, setUnreadByDealId] = useState<Record<string, number>>({});
   const lastLocationUpdateMsRef = useRef(0);
 
+  // Wait for auth to initialize
   useEffect(() => {
-    loadBuyerLocation();
-    loadHiredFarmers();
-    loadBuyerDeals();
+    const unsub = auth.onAuthStateChanged((user) => {
+      console.log('Auth state changed:', user ? `User ${user.uid}` : 'No user');
+      setAuthReady(true);
+      if (user) {
+        loadBuyerLocation();
+        loadHiredFarmers();
+        loadBuyerDeals();
+      } else {
+        console.warn('No authenticated user');
+        setHiredFarmers([]);
+        setBuyerDeals([]);
+      }
+    });
+    return unsub;
   }, []);
 
   // Reload deals when returning to this screen so accepted offers show up reliably.
@@ -198,9 +222,11 @@ export const ContactFarmerScreen = () => {
       setDealsLoading(true);
       const user = auth.currentUser;
       if (!user) {
+        console.log('loadBuyerDeals: No authenticated user');
         setBuyerDeals([]);
         return;
       }
+      console.log('Loading buyer deals for user:', user.uid);
       const deals = await getBuyerMarketDeals(user.uid);
       setBuyerDeals(deals);
     } catch {
@@ -214,8 +240,13 @@ export const ContactFarmerScreen = () => {
     try {
       setHiredLoading(true);
       const user = auth.currentUser;
-      if (!user) return;
+      if (!user) {
+        console.log('loadHiredFarmers: No authenticated user');
+        setHiredFarmers([]);
+        return;
+      }
 
+      console.log('Loading hired farmers for user:', user.uid);
       const hired = await getHiredFarmers(user.uid);
       const formatted: FarmerListing[] = hired.map((h) => ({
         id: h.id,
@@ -343,9 +374,11 @@ export const ContactFarmerScreen = () => {
   const submitNegotiation = async () => {
     const user = auth.currentUser;
     if (!user) {
-      Alert.alert(tr('contactFarmer.error', 'Error'), 'Please sign in');
+      console.error('submitNegotiation: No authenticated user');
+      Alert.alert(tr('contactFarmer.error', 'Error'), 'Please sign in. Try logging out and back in.');
       return;
     }
+    console.log('Submitting negotiation for user:', user.uid);
 
     if (!negFarmer || !negProduct) {
       Alert.alert(tr('contactFarmer.error', 'Error'), 'No farmer/product selected');
@@ -394,9 +427,11 @@ export const ContactFarmerScreen = () => {
   const handleRequestToBuy = async (farmer: FarmerListing) => {
     const user = auth.currentUser;
     if (!user) {
-      Alert.alert(tr('contactFarmer.error', 'Error'), 'Please sign in');
+      console.error('handleRequestToBuy: No authenticated user');
+      Alert.alert(tr('contactFarmer.error', 'Error'), 'Please sign in. Try logging out and back in.');
       return;
     }
+    console.log('Creating request to buy for user:', user.uid);
 
     const product = farmer.products[0];
     if (!product) {
@@ -573,16 +608,71 @@ export const ContactFarmerScreen = () => {
   };
 
   const unreadBuyerUpdates = buyerDeals.filter(
-    (d) => d.status !== 'pending' && d.buyerSeen === false
+    (d) => d.buyerSeen === false
   );
 
   const buyerDealUpdatesSorted = useMemo(() => {
     return [...buyerDeals]
-      .filter((d) => d.status !== 'pending' && d.buyerSeen === false)
+      .filter((d) => d.buyerSeen === false)
       .sort(
         (a, b) => (b.updatedAt?.toMillis?.() ?? 0) - (a.updatedAt?.toMillis?.() ?? 0)
       );
   }, [buyerDeals]);
+
+  const openCounterForDeal = (deal: MarketDeal) => {
+    setCounterDeal(deal);
+    setCounterQuantity(String(deal.offerQuantity ?? ''));
+    setCounterPrice(String(deal.offerPrice ?? ''));
+    setShowCounterModal(true);
+  };
+
+  const submitCounterForDeal = async () => {
+    if (!counterDeal) return;
+    const q = Number(counterQuantity);
+    const p = Number(counterPrice);
+    if (!Number.isFinite(q) || q <= 0 || !Number.isFinite(p) || p <= 0) {
+      Alert.alert(tr('contactFarmer.error', 'Error'), 'Enter valid quantity and price');
+      return;
+    }
+
+    try {
+      setCounterSubmitting(true);
+      await counterMarketDeal({
+        dealId: counterDeal.id,
+        actor: 'buyer',
+        offerQuantity: q,
+        offerPrice: p,
+      });
+      setShowCounterModal(false);
+      setCounterDeal(null);
+      await loadBuyerDeals();
+      Alert.alert(tr('contactFarmer.updated', 'Updated'), 'Counter offer sent. Farmer has been notified.');
+    } catch (e: any) {
+      Alert.alert(tr('contactFarmer.error', 'Error'), e?.message || 'Failed to send counter offer');
+    } finally {
+      setCounterSubmitting(false);
+    }
+  };
+
+  const handleAcceptIncomingDeal = async (deal: MarketDeal) => {
+    try {
+      await acceptMarketDeal(deal, 'buyer');
+      await loadBuyerDeals();
+      Alert.alert(tr('contactFarmer.success', 'Success'), 'Accepted. Farmer has been notified.');
+    } catch (e: any) {
+      Alert.alert(tr('contactFarmer.error', 'Error'), e?.message || 'Failed to accept');
+    }
+  };
+
+  const handleRejectIncomingDeal = async (deal: MarketDeal) => {
+    try {
+      await rejectMarketDeal(deal.id, 'buyer');
+      await loadBuyerDeals();
+      Alert.alert(tr('contactFarmer.updated', 'Updated'), 'Rejected. Farmer has been notified.');
+    } catch (e: any) {
+      Alert.alert(tr('contactFarmer.error', 'Error'), e?.message || 'Failed to reject');
+    }
+  };
 
   // Buyer-side: show ALL accepted deals here (negotiation + requestToBuy).
   // Previously this was limited to requestToBuy which hid accepted negotiations.
@@ -651,24 +741,9 @@ export const ContactFarmerScreen = () => {
             elevation: 10,
           }}
         >
-          <TouchableOpacity
-            onPress={() => navigation.goBack()}
-            style={{
-              marginBottom: 20,
-              flexDirection: 'row',
-              alignItems: 'center',
-            }}
-          >
-            <ArrowLeft size={24} color="#fff" strokeWidth={2.5} />
-            <Text style={{
-              color: '#fff',
-              fontSize: 16,
-              fontWeight: '600',
-              marginLeft: 8,
-            }}>
-              {tr('contactFarmer.back', 'Back')}
-            </Text>
-          </TouchableOpacity>
+          <View style={{ marginBottom: 20 }}>
+            <BackButton />
+          </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
             <View style={{ flex: 1, paddingRight: 12 }}>
               <Text style={{
@@ -1660,12 +1735,22 @@ export const ContactFarmerScreen = () => {
                   <View
                     key={deal.id}
                     style={{
-                      backgroundColor: deal.status === 'accepted' ? '#ECFDF5' : '#FEF2F2',
+                      backgroundColor:
+                        deal.status === 'pending'
+                          ? '#F0FDF4'
+                          : deal.status === 'accepted'
+                            ? '#ECFDF5'
+                            : '#FEF2F2',
                       borderRadius: 18,
                       padding: 16,
                       marginBottom: 12,
                       borderWidth: 1,
-                      borderColor: deal.status === 'accepted' ? '#A7F3D0' : '#FECACA',
+                      borderColor:
+                        deal.status === 'pending'
+                          ? '#BBF7D0'
+                          : deal.status === 'accepted'
+                            ? '#A7F3D0'
+                            : '#FECACA',
                     }}
                   >
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1674,7 +1759,12 @@ export const ContactFarmerScreen = () => {
                       </Text>
                       <View
                         style={{
-                          backgroundColor: deal.status === 'accepted' ? '#DBEAFE' : '#FEE2E2',
+                          backgroundColor:
+                            deal.status === 'pending'
+                              ? '#FEF3C7'
+                              : deal.status === 'accepted'
+                                ? '#DBEAFE'
+                                : '#FEE2E2',
                           borderRadius: 999,
                           paddingHorizontal: 10,
                           paddingVertical: 6,
@@ -1682,7 +1772,12 @@ export const ContactFarmerScreen = () => {
                       >
                         <Text
                           style={{
-                            color: deal.status === 'accepted' ? '#1D4ED8' : '#991B1B',
+                            color:
+                              deal.status === 'pending'
+                                ? '#92400E'
+                                : deal.status === 'accepted'
+                                  ? '#1D4ED8'
+                                  : '#991B1B',
                             fontWeight: '800',
                             fontSize: 12,
                           }}
@@ -1707,6 +1802,58 @@ export const ContactFarmerScreen = () => {
                         : tr('contactFarmer.requestToBuy', 'Request to Buy')} • {tr('contactFarmer.qtyShort', 'Qty')}: {deal.offerQuantity} {deal.unit} • {tr('contactFarmer.price', 'Price')}: ₹{deal.offerPrice}
                     </Text>
 
+                    {deal.status === 'pending' && (
+                      <View style={{ marginTop: 12, gap: 10 }}>
+                        <TouchableOpacity
+                          onPress={() => openCounterForDeal(deal)}
+                          activeOpacity={0.85}
+                          style={{
+                            backgroundColor: '#2563EB',
+                            borderRadius: 12,
+                            paddingVertical: 12,
+                            alignItems: 'center',
+                          }}
+                        >
+                          <Text style={{ color: '#fff', fontWeight: '900' }}>
+                            {tr('contactFarmer.negotiateBack', 'Negotiate back')}
+                          </Text>
+                        </TouchableOpacity>
+
+                        <View style={{ flexDirection: 'row', gap: 10 }}>
+                          <TouchableOpacity
+                            onPress={() => handleRejectIncomingDeal(deal)}
+                            activeOpacity={0.85}
+                            style={{
+                              backgroundColor: '#DC2626',
+                              borderRadius: 12,
+                              paddingVertical: 12,
+                              flex: 1,
+                              alignItems: 'center',
+                            }}
+                          >
+                            <Text style={{ color: '#fff', fontWeight: '900' }}>
+                              {tr('contactFarmer.reject', 'Reject')}
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => handleAcceptIncomingDeal(deal)}
+                            activeOpacity={0.85}
+                            style={{
+                              backgroundColor: '#16A34A',
+                              borderRadius: 12,
+                              paddingVertical: 12,
+                              flex: 1,
+                              alignItems: 'center',
+                            }}
+                          >
+                            <Text style={{ color: '#fff', fontWeight: '900' }}>
+                              {tr('contactFarmer.accept', 'Accept')}
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    )}
+
                     {/* No Call/Chat buttons inside notification cards */}
 
                     <TouchableOpacity
@@ -1727,6 +1874,93 @@ export const ContactFarmerScreen = () => {
                 ))
               )}
             </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Counter Negotiation Modal */}
+      <Modal
+        visible={showCounterModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowCounterModal(false)}
+      >
+        <View className="flex-1 bg-black/50 justify-end">
+          <View className="bg-white rounded-t-3xl p-6" style={{ maxHeight: '80%' }}>
+            <View className="flex-row items-center justify-between mb-4">
+              <Text className="text-gray-900 text-2xl font-bold">
+                {tr('contactFarmer.negotiateBack', 'Negotiate back')}
+              </Text>
+              <TouchableOpacity
+                onPress={() => setShowCounterModal(false)}
+                className="bg-gray-200 rounded-full w-10 h-10 items-center justify-center"
+              >
+                <X size={20} color="#374151" strokeWidth={2} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={{ color: '#374151', fontSize: 14, fontWeight: '700', marginBottom: 10 }}>
+              {tr('contactFarmer.product', 'Product')}: {counterDeal?.productName || '-'} • {tr('contactFarmer.unit', 'Unit')}: {counterDeal?.unit || '-'}
+            </Text>
+
+            <Text style={{ color: '#374151', fontSize: 13, fontWeight: '700', marginBottom: 8 }}>
+              {tr('contactFarmer.quantity', 'Quantity')}
+            </Text>
+            <TextInput
+              value={counterQuantity}
+              onChangeText={setCounterQuantity}
+              keyboardType="numeric"
+              placeholder={tr('contactFarmer.enterQuantity', 'Enter quantity')}
+              placeholderTextColor="#9CA3AF"
+              style={{
+                backgroundColor: '#F3F4F6',
+                borderRadius: 12,
+                padding: 14,
+                fontSize: 15,
+                color: '#111827',
+                borderWidth: 1,
+                borderColor: '#E5E7EB',
+                marginBottom: 12,
+              }}
+            />
+
+            <Text style={{ color: '#374151', fontSize: 13, fontWeight: '700', marginBottom: 8 }}>
+              {tr('contactFarmer.pricePerUnit', 'Price (₹ per unit)')}
+            </Text>
+            <TextInput
+              value={counterPrice}
+              onChangeText={setCounterPrice}
+              keyboardType="numeric"
+              placeholder={tr('contactFarmer.enterPrice', 'Enter price')}
+              placeholderTextColor="#9CA3AF"
+              style={{
+                backgroundColor: '#F3F4F6',
+                borderRadius: 12,
+                padding: 14,
+                fontSize: 15,
+                color: '#111827',
+                borderWidth: 1,
+                borderColor: '#E5E7EB',
+                marginBottom: 16,
+              }}
+            />
+
+            <TouchableOpacity
+              onPress={submitCounterForDeal}
+              activeOpacity={0.85}
+              disabled={counterSubmitting}
+            >
+              <LinearGradient
+                colors={['#2563EB', '#1D4ED8']}
+                style={{ borderRadius: 14, paddingVertical: 14, alignItems: 'center' }}
+              >
+                <Text style={{ color: '#fff', fontSize: 15, fontWeight: '900' }}>
+                  {counterSubmitting
+                    ? tr('contactFarmer.sending', 'Sending...')
+                    : tr('contactFarmer.sendCounterOffer', 'Send counter offer')}
+                </Text>
+              </LinearGradient>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>

@@ -8,7 +8,8 @@ import {
   Linking,
   ActivityIndicator,
 } from 'react-native';
-import { ArrowLeft, MapPin } from 'lucide-react-native';
+import { MapPin } from 'lucide-react-native';
+import BackButton from '@/components/BackButton';
 import { useTranslation } from 'react-i18next';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -132,9 +133,9 @@ export const LiveLocationScreen = () => {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
       <View style={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: 12, flexDirection: 'row', alignItems: 'center' }}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={{ padding: 8, marginRight: 10 }}>
-          <ArrowLeft size={24} color="#111827" strokeWidth={2.5} />
-        </TouchableOpacity>
+        <View style={{ marginRight: 10 }}>
+          <BackButton />
+        </View>
         <View style={{ flex: 1 }}>
           <Text style={{ fontSize: 18, fontWeight: '800', color: '#111827' }} numberOfLines={1}>
             {tr('liveLocation.title', 'Location')}

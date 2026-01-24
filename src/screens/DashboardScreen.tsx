@@ -11,6 +11,7 @@ import {
   StyleSheet,
   Pressable,
   Modal,
+  BackHandler,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 // @ts-ignore
@@ -18,7 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { HandHeart, Sun, Droplets, Wind, Wheat, Ruler, Heart, MapPin, Cloud, CloudRain, CloudDrizzle, CloudSnow, CloudLightning, CloudFog, Sprout, Tractor, Leaf, Moon, X, Newspaper, TrendingUp, CloudSun, Scale, Cpu, Calendar, ExternalLink, RefreshCcw } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { ChatbotModal } from '../components/ChatbotModal';
@@ -27,6 +28,11 @@ import { localizeNumber } from '../utils/numberLocalization';
 import { getWeatherForCurrentLocation, WeatherData, getWeatherIcon, getWeatherConditionKey } from '../services/weather';
 import { getAgriculturalNews, NewsArticle } from '../services/news';
 import { auth } from '../config/firebase';
+import {
+  cleanupExpiredFarmingPlansForCurrentUser,
+  getActiveFarmingPlansForCurrentUser,
+  FarmingPlanSummary,
+} from '../services/farmingPlan';
 
 type DashboardScreenNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -37,11 +43,24 @@ export const DashboardScreen = () => {
   const { t, i18n } = useTranslation();
   const navigation = useNavigation<DashboardScreenNavigationProp>();
   const insets = useSafeAreaInsets();
+
+  // Prevent navigating back to auth (or exiting) from dashboard
+  useFocusEffect(
+    React.useCallback(() => {
+      const onBackPress = () => true;
+      const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+      return () => subscription.remove();
+    }, [])
+  );
   const [isChatbotVisible, setIsChatbotVisible] = useState(false);
   const [isDrawerVisible, setIsDrawerVisible] = useState(false);
   const [weatherData, setWeatherData] = useState<WeatherData | null>(null);
   const [isLoadingWeather, setIsLoadingWeather] = useState(true);
   const [weatherError, setWeatherError] = useState(false);
+
+  // Farming tasks state (actionable reminders)
+  const [farmingPlans, setFarmingPlans] = useState<FarmingPlanSummary[]>([]);
+  const [isLoadingFarmingPlans, setIsLoadingFarmingPlans] = useState(true);
   
   // News state
   const [newsArticles, setNewsArticles] = useState<NewsArticle[]>([]);
@@ -59,22 +78,44 @@ export const DashboardScreen = () => {
   const notificationCount = 2;
 
   // Safe translation helper
-  const tr = (key: string, fallback?: string) => {
+  const tr = (key: string, fallback?: string, options?: Record<string, unknown>) => {
     try {
       if (!i18n || !i18n.isInitialized) {
         return fallback || key;
       }
-      const translated = t(key);
-      return translated || fallback || key;
+      const translated = t(key, options as any);
+      return typeof translated === 'string' && translated.length > 0
+        ? translated
+        : fallback || key;
     } catch (error) {
       console.error('Translation error:', error);
       return fallback || key;
     }
   };
 
+  async function refreshFarmingPlans() {
+    setIsLoadingFarmingPlans(true);
+    try {
+      // Only clean up and fetch if the user is signed in.
+      if (auth.currentUser) {
+        await cleanupExpiredFarmingPlansForCurrentUser();
+        const plans = await getActiveFarmingPlansForCurrentUser({ language: i18n.language });
+        setFarmingPlans(plans);
+      } else {
+        setFarmingPlans([]);
+      }
+    } catch (error) {
+      console.error('Error loading farming plans:', error);
+      setFarmingPlans([]);
+    } finally {
+      setIsLoadingFarmingPlans(false);
+    }
+  }
+
   // Fetch weather data and news on component mount
   useEffect(() => {
     fetchWeather();
+    refreshFarmingPlans();
 
     // Entrance animations
     Animated.parallel([
@@ -91,6 +132,13 @@ export const DashboardScreen = () => {
       }),
     ]).start();
   }, []);
+
+  // Refresh tasks whenever the dashboard comes back into focus (e.g., after creating a plan).
+  useFocusEffect(
+    React.useCallback(() => {
+      refreshFarmingPlans();
+    }, [])
+  );
 
   // Re-fetch news when language changes
   useEffect(() => {
@@ -310,7 +358,7 @@ export const DashboardScreen = () => {
     status: tr('dashboard.farmSummary.healthy', 'Healthy'),
   };
 
-  const handleDrawerNavigate = (screen: 'Profile' | 'CropPrediction' | 'DocumentAnalyzer' | 'CropDiseaseDetection' | 'ContactBuyer') => {
+  const handleDrawerNavigate = (screen: 'Profile' | 'CropPrediction' | 'CropPlanner' | 'DocumentAnalyzer' | 'CropDiseaseDetection' | 'ContactBuyer') => {
     navigation.navigate(screen);
   };
 
@@ -898,7 +946,205 @@ export const DashboardScreen = () => {
           </Animated.View>
         </View>
 
-        {/* Farming Feed - Village Theme */}
+        {/* Farming Plans (Carousel) */}
+        <View style={{ paddingHorizontal: 20, marginTop: 24 }}>
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: 16,
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Calendar size={24} color="#16A34A" strokeWidth={2.5} />
+              <Text
+                style={{
+                  color: '#111827',
+                  fontSize: 20,
+                  fontWeight: '800',
+                  marginLeft: 10,
+                  letterSpacing: -0.3,
+                }}
+              >
+                {t('dashboard.farmingPlans.title')}
+              </Text>
+            </View>
+
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <TouchableOpacity
+                onPress={refreshFarmingPlans}
+                disabled={isLoadingFarmingPlans}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  backgroundColor: isLoadingFarmingPlans ? '#E5E7EB' : '#DCFCE7',
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: isLoadingFarmingPlans ? '#E5E7EB' : '#BBF7D0',
+                }}
+              >
+                <RefreshCcw
+                  size={14}
+                  color={isLoadingFarmingPlans ? '#9CA3AF' : '#16A34A'}
+                  strokeWidth={2.5}
+                />
+                <Text
+                  style={{
+                    marginLeft: 6,
+                    color: isLoadingFarmingPlans ? '#9CA3AF' : '#166534',
+                    fontSize: 12,
+                    fontWeight: '800',
+                  }}
+                >
+                  {t('dashboard.farmingPlans.refresh')}
+                </Text>
+              </TouchableOpacity>
+              {isLoadingFarmingPlans && (
+                <ActivityIndicator size="small" color="#22C55E" />
+              )}
+            </View>
+          </View>
+
+          {isLoadingFarmingPlans ? (
+            <View
+              style={{
+                backgroundColor: '#F9FAFB',
+                borderRadius: 20,
+                padding: 30,
+                alignItems: 'center',
+                borderWidth: 1,
+                borderColor: '#E5E7EB',
+              }}
+            >
+              <ActivityIndicator size="large" color="#22C55E" />
+              <Text
+                style={{
+                  color: '#6B7280',
+                  fontSize: 14,
+                  fontWeight: '600',
+                  marginTop: 12,
+                }}
+              >
+                {t('dashboard.farmingPlans.loading')}
+              </Text>
+            </View>
+          ) : farmingPlans.length === 0 ? (
+            <View
+              style={{
+                backgroundColor: '#FFFFFF',
+                borderRadius: 20,
+                padding: 20,
+                borderWidth: 1,
+                borderColor: '#E5E7EB',
+              }}
+            >
+              <Text style={{ color: '#111827', fontSize: 16, fontWeight: '800' }}>
+                {t('dashboard.farmingPlans.emptyTitle')}
+              </Text>
+              <Text
+                style={{
+                  color: '#6B7280',
+                  fontSize: 13,
+                  fontWeight: '600',
+                  marginTop: 6,
+                  lineHeight: 18,
+                }}
+              >
+                {t('dashboard.farmingPlans.emptyBody')}
+              </Text>
+              <TouchableOpacity
+                onPress={() => navigation.navigate('CropPlanner')}
+                style={{
+                  marginTop: 14,
+                  backgroundColor: '#16A34A',
+                  borderRadius: 14,
+                  paddingVertical: 12,
+                  alignItems: 'center',
+                }}
+              >
+                <Text style={{ color: '#FFFFFF', fontWeight: '800' }}>
+                  {t('dashboard.farmingPlans.createPlan')}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingRight: 10 }}
+            >
+              {farmingPlans.map((plan) => {
+                const nextLabel = plan.nextTaskDateISO && plan.nextTaskTitle
+                  ? `${plan.nextTaskDateISO} • ${plan.nextTaskTitle}`
+                  : t('dashboard.farmingPlans.noUpcoming');
+
+                return (
+                  <LinearGradient
+                    key={plan.id}
+                    colors={['#FFFFFF', '#F0FDF4']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={{
+                      width: 290,
+                      marginRight: 12,
+                      borderRadius: 18,
+                      padding: 16,
+                      borderWidth: 1.5,
+                      borderColor: '#BBF7D0',
+                      shadowColor: '#16A34A',
+                      shadowOffset: { width: 0, height: 4 },
+                      shadowOpacity: 0.08,
+                      shadowRadius: 10,
+                      elevation: 3,
+                    }}
+                  >
+                    <Text style={{ color: '#065F46', fontSize: 12, fontWeight: '900' }}>
+                      {plan.cropName}
+                    </Text>
+                    <Text style={{ marginTop: 6, color: '#111827', fontSize: 16, fontWeight: '900' }} numberOfLines={2}>
+                      {plan.planTitle}
+                    </Text>
+
+                    <View style={{ marginTop: 10, gap: 6 }}>
+                      <Text style={{ color: '#374151', fontSize: 12, fontWeight: '700' }}>
+                        {t('dashboard.farmingPlans.planting', { date: plan.plantingDateISO })}
+                      </Text>
+                      <Text style={{ color: '#374151', fontSize: 12, fontWeight: '700' }}>
+                        {t('dashboard.farmingPlans.harvest', { date: plan.expectedHarvestDateISO })}
+                      </Text>
+                      <Text style={{ color: '#166534', fontSize: 12, fontWeight: '900', marginTop: 2 }} numberOfLines={2}>
+                        {t('dashboard.farmingPlans.nextTask', { text: nextLabel })}
+                      </Text>
+                      <Text style={{ color: '#166534', fontSize: 12, fontWeight: '800' }}>
+                        {t('dashboard.farmingPlans.tasksNext7Days', { count: plan.nextTaskCountIn7Days || 0 })}
+                      </Text>
+                    </View>
+
+                    <TouchableOpacity
+                      onPress={() => navigation.navigate('PlanCalendar', { planId: plan.id, planTitle: plan.planTitle })}
+                      style={{
+                        marginTop: 14,
+                        backgroundColor: '#16A34A',
+                        borderRadius: 14,
+                        paddingVertical: 12,
+                        alignItems: 'center',
+                      }}
+                    >
+                      <Text style={{ color: '#FFFFFF', fontWeight: '900' }}>
+                        {t('dashboard.farmingPlans.viewPlan')}
+                      </Text>
+                    </TouchableOpacity>
+                  </LinearGradient>
+                );
+              })}
+            </ScrollView>
+          )}
+        </View>
+
+        {/* Agricultural News */}
         <View style={{ paddingHorizontal: 20, marginTop: 24, marginBottom: 28 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>

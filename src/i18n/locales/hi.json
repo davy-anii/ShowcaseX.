@@ -27,10 +27,92 @@
   },
   "common": {
     "back": "वापस",
+    "ok": "ठीक है",
+    "cancel": "रद्द करें",
+    "confirm": "पुष्टि करें",
     "status": {
       "pending": "लंबित",
       "accepted": "स्वीकृत",
       "rejected": "अस्वीकृत"
+    }
+  },
+  "cropPlanner": {
+    "title": "फसल योजना",
+    "subtitle": "रिमाइंडर और कार्यों का शेड्यूल बनाएं",
+    "cardTitle": "योजना विवरण",
+    "cardSubtitle": "हम सिंचाई, उर्वरक और निरीक्षण रिमाइंडर बनाएँगे",
+    "createPlan": "योजना बनाएं",
+    "creating": "बन रहा है…",
+    "na": "उपलब्ध नहीं",
+    "expectedHarvest": "अनुमानित कटाई: {{date}}",
+    "footerNote": "रिमाइंडर केवल फसल चक्र तक सहेजे जाते हैं, फिर अपने आप साफ़ हो जाते हैं।",
+    "fields": {
+      "cropType": "फसल प्रकार",
+      "cropTypePlaceholder": "फसल चुनें",
+      "cropName": "फसल का नाम",
+      "cropNamePlaceholder": "जैसे: बोरो धान / गेहूं / टमाटर",
+      "plotArea": "खेत का क्षेत्रफल",
+      "areaAcres": "क्षेत्र (एकड़)",
+      "areaPlaceholder": "जैसे: 2",
+      "plantingDate": "रोपाई/बुवाई की तिथि",
+      "harvestDateOptional": "अनुमानित कटाई तिथि (वैकल्पिक)",
+      "harvestSuggested": "सुझाव: {{date}}",
+      "selectDate": "तिथि चुनें"
+    },
+    "cropOptions": {
+      "rice": "धान (पैडी)",
+      "wheat": "गेहूं",
+      "corn": "मक्का (कॉर्न)",
+      "potato": "आलू",
+      "tomato": "टमाटर",
+      "onion": "प्याज़",
+      "cotton": "कपास",
+      "sugarcane": "गन्ना",
+      "other": "अन्य"
+    },
+    "errors": {
+      "cropTypeRequired": "फसल प्रकार आवश्यक है।",
+      "cropNameRequired": "फसल का नाम आवश्यक है।",
+      "areaRequired": "क्षेत्रफल आवश्यक है।",
+      "areaInvalid": "एकड़ में मान्य क्षेत्रफल दर्ज करें।",
+      "plantingRequired": "रोपाई/बुवाई की तिथि आवश्यक है।",
+      "dateFormat": "DD/MM/YYYY प्रारूप का उपयोग करें।",
+      "harvestAfterPlanting": "कटाई की तिथि रोपाई/बुवाई के बाद होनी चाहिए।"
+    },
+    "alerts": {
+      "createdTitle": "योजना बन गई",
+      "createdBody": "आपकी खेती योजना सहेज दी गई है।\nअनुमानित कटाई तिथि: {{date}}",
+      "errorTitle": "त्रुटि",
+      "errorBody": "योजना बनाने में विफल। कृपया फिर से प्रयास करें।"
+    },
+    "customCrop": {
+      "title": "कस्टम फसल का नाम दर्ज करें",
+      "subtitle": "आप कौन सी फसल उगाना चाहते हैं?",
+      "inputLabel": "फसल का नाम",
+      "inputPlaceholder": "जैसे: आम, मसूर, चने",
+      "errorTitle": "इनपुट आवश्यक",
+      "errorMessage": "कृपया एक फसल का नाम दर्ज करें।"
+    }
+  },
+  "pdf": {
+    "downloadPdf": "PDF डाउनलोड करें",
+    "generating": "PDF बनाया जा रहा है...",
+    "successTitle": "PDF तैयार है",
+    "successMessage": "आपका PDF बन गया है। अब आप इसे सेव या शेयर कर सकते हैं।",
+    "webDownloadedMessage": "आपका PDF डाउनलोड अपने आप शुरू होना चाहिए।",
+    "errorTitle": "PDF त्रुटि",
+    "errorMessage": "PDF बनाने में विफल। कृपया फिर से प्रयास करें।",
+    "defaultFarmerName": "किसान",
+    "cropPredictionReportTitle": "फसल भविष्यवाणी रिपोर्ट",
+    "keyInsights": "मुख्य निष्कर्ष",
+    "generatedByApp": "ऐप द्वारा जनरेट किया गया",
+    "analysisDateTime": "विश्लेषण की तारीख/समय",
+    "farmerName": "किसान का नाम",
+    "insight": {
+      "yield": "अनुमानित उपज: {{yieldKg}} किग्रा (लगभग {{yieldTons}} टन)",
+      "revenue": "अनुमानित आय: ₹{{revenue}} (लगभग ₹{{price}}/किग्रा)",
+      "confidence": "विश्वास: {{confidence}}% • जलवायु स्कोर: {{climate}}/100",
+      "health": "फसल स्वास्थ्य: {{health}}%"
     }
   },
   "documentAnalyzer": {
@@ -277,6 +359,7 @@
     "uploadProduct": "उत्पाद अपलोड करें",
     "addPhoto": "उत्पाद फोटो जोड़ें",
     "tapToUpload": "अपलोड के लिए टैप करें",
+    "tapToChange": "बदलने के लिए टैप करें",
     "productName": "उत्पाद का नाम",
     "enterProductName": "उदाहरण, ताज़ा टमाटर",
     "rate": "दर (₹ प्रति यूनिट)",
@@ -330,6 +413,31 @@
     "reject": "अस्वीकारें",
     "failedToMarkRead": "पढ़ा हुआ चिह्नित नहीं हो सका",
     "failedToMarkAllRead": "सभी को पढ़ा हुआ नहीं कर सके",
+    "kg": "किलोग्राम",
+  "quintal": "क्विंटल",
+  "uploadBlocked": "अपलोड अवरुद्ध है",
+  "productNameCorrected": "उत्पाद का नाम सुधारा गया",
+  "aiDetectedProduct": "एआई ने आपके उत्पाद को इस रूप में पहचाना है:",
+  "originalName": "मूल नाम:",
+  "category": "श्रेणी:",
+  "proceedWithCorrected": "क्या आप सुधारे गए नाम के साथ आगे बढ़ना चाहते हैं?",
+  "useCorrectedName": "सुधारा हुआ नाम उपयोग करें",
+  "cancel": "रद्द करें",
+  "ok": "ठीक है",
+  "deleteProduct": "उत्पाद हटाएँ",
+  "deleteConfirm": "\"{name}\" को हटाना चाहते हैं?",
+  "delete": "हटाएँ",
+  "permissionRequired": "माफ़ कीजिए, चित्र अपलोड करने के लिए हमें गैलरी की अनुमति चाहिए!",
+  "fillAllFields": "कृपया सभी विवरण भरें (स्थान सहित)",
+  "uploadImageRequired": "सत्यापन के लिए कृपया उत्पाद की एक छवि अपलोड करें",
+  "signInRequired": "उत्पाद अपलोड करने के लिए कृपया साइन इन करें",
+  "validationFailed": "उत्पाद सत्यापन विफल रहा। कृपया अपना इंटरनेट कनेक्शन जाँचें और फिर से प्रयास करें।",
+  "uploadValidProduct": "कृपया सही नाम के साथ एक वैध खाद्य/कृषि उत्पाद अपलोड करें।",
+  "productUploaded": "{name} सफलतापूर्वक अपलोड हो गया!",
+  "enterValidQuantityPrice": "मान्य मात्रा और मूल्य दर्ज करें",
+  "counterOfferSent": "काउंटर ऑफर भेज दिया गया है। खरीदार को सूचित कर दिया गया है।",
+  "failedToSendCounter": "काउंटर ऑफर भेजने में विफल",
+  "failedToDeleteProduct": "उत्पाद हटाने में विफल",
     "buyers": {
       "name1": "थोक बाजार दिल्ली",
       "address1": "आज़ादपुर मंडी, दिल्ली",
@@ -341,6 +449,13 @@
       "address3": "कोलकाता, पश्चिम बंगाल",
       "desc3": "ताजी सब्जियों और फलों के लिए नियमित खरीदार"
     }
+  },
+  "validationError": {
+    "notFoodProduct": "चित्र में खाद्य या कृषि उत्पाद नहीं दिख रहा है। कृपया वास्तविक खाद्य या फसल की तस्वीर अपलोड करें।",
+    "offensiveName": "प्रदान किया गया उत्पाद नाम आपत्तिजनक है या खाद्य वस्तु के रूप में मान्यता प्राप्त नहीं है। कृपया उचित उत्पाद नाम का उपयोग करें।",
+    "lowQuality": "चित्र की गुणवत्ता पहचानने के लिए बहुत कम है। कृपया एक स्पष्ट तस्वीर अपलोड करें।",
+    "notPhoto": "अपलोड स्क्रीनशॉट या ग्राफिक्स जैसा दिखता है। कृपया उत्पाद की एक वास्तविक तस्वीर अपलोड करें।",
+    "unidentifiable": "चित्र में उत्पाद की पहचान नहीं की जा सकी। कृपया अपनी उपज की एक स्पष्ट तस्वीर अपलोड करें।"
   },
   "signUp": {
     "title": "खाता बनाएं",
@@ -462,6 +577,30 @@
       "status": "स्थिति",
       "healthy": "स्वस्थ"
     },
+    "farmingTasks": {
+      "title": "फार्मिंग फीड",
+      "refresh": "रीफ़्रेश",
+      "loading": "आपके आगामी कार्य लोड हो रहे हैं...",
+      "emptyTitle": "अभी कोई शेड्यूल कार्य नहीं",
+      "emptyBody": "एक बार योजना बनाएं, और हम यहाँ रिमाइंडर दिखाएँगे।",
+      "createPlan": "योजना बनाएं",
+      "seeMore": "और देखें ({{count}} और)",
+      "seeLess": "कम दिखाएं"
+    },
+    "farmingPlans": {
+      "title": "आपकी योजनाएँ",
+      "refresh": "रीफ़्रेश",
+      "loading": "आपकी योजनाएँ लोड हो रही हैं...",
+      "emptyTitle": "अभी कोई योजना नहीं",
+      "emptyBody": "यहाँ कैलेंडर और दैनिक रूटीन देखने के लिए फसल योजना बनाएं।",
+      "createPlan": "योजना बनाएं",
+      "viewPlan": "योजना देखें",
+      "planting": "बुवाई: {{date}}",
+      "harvest": "कटाई: {{date}}",
+      "nextTask": "अगला: {{text}}",
+      "noUpcoming": "कोई आने वाला कार्य नहीं",
+      "tasksNext7Days": "कार्य (अगले 7 दिन): {{count}}"
+    },
     "farmingFeed": {
       "title": "कृषि अपडेट",
       "update1Title": "धान की उपज बढ़ने की उम्मीद",
@@ -505,6 +644,32 @@
       "rice": "धान"
     }
   },
+  "planCalendar": {
+    "title": "योजना कैलेंडर",
+    "loading": "कैलेंडर लोड हो रहा है...",
+    "tipTitle": "टिप",
+    "tipBody": "किसी तारीख़ पर टैप करके सुबह से रात तक का पूरा रूटीन देखें।"
+  },
+  "dailyRoutine": {
+    "title": "दैनिक रूटीन",
+    "loading": "रूटीन लोड हो रहा है...",
+    "emptyTitle": "इस दिन के लिए कोई काम नहीं",
+    "emptyBody": "कैलेंडर से कोई दूसरी तारीख़ चुनें।",
+    "morning": "सुबह",
+    "afternoon": "दोपहर",
+    "evening": "शाम",
+    "night": "रात",
+    "waterAmount": "पानी: {{amount}}",
+    "type": {
+      "watering": "सिंचाई",
+      "fertilizer": "खाद",
+      "pest": "कीट",
+      "disease": "रोग",
+      "field": "खेत",
+      "harvest": "कटाई",
+      "general": "सामान्य"
+    }
+  },
   "drawer": {
     "title": "मेनू",
     "subtitle": "सुविधाओं पर जाएं",
@@ -512,6 +677,8 @@
     "profileSubtitle": "अपने खाता सेटिंग प्रबंधित करें",
     "contactBuyer": "खरीदार से संपर्क करें",
     "contactBuyerSubtitle": "इच्छुक खरीदारों से जुड़ें",
+    "cropPlanner": "फसल योजना",
+    "cropPlannerSubtitle": "योजना और शेड्यूल बनाएं",
     "version": "संस्करण"
   },
   "prediction": {
@@ -526,10 +693,14 @@
     "cropTypePlaceholder": "फसल का प्रकार चुनें",
     "acres": "भूमि क्षेत्र (एकड़)",
     "acresPlaceholder": "क्षेत्र दर्ज करें",
+    "sellingPricePerKg": "बिक्री मूल्य (₹/किलो)",
+    "sellingPricePerKgPlaceholder": "प्रति किलो मूल्य दर्ज करें",
     "plantingDate": "बुवाई की तारीख",
     "plantingDatePlaceholder": "दिन/महीना/वर्ष",
     "harvestDate": "अपेक्षित कटाई की तारीख",
     "harvestDatePlaceholder": "दिन/महीना/वर्ष",
+    "growingPeriod": "विकास अवधि (दिन)",
+    "growingPeriodPlaceholder": "दिन दर्ज करें",
     "soilType": "मिट्टी का प्रकार",
     "soilTypePlaceholder": "मिट्टी का प्रकार चुनें",
     "farmingMethod": "खेती की विधि",
@@ -541,6 +712,13 @@
     "optional": "वैकल्पिक",
     "submitButton": "पूर्वानुमान प्राप्त करें",
     "submitPrediction": "पूर्वानुमान प्राप्त करें",
+    "other": "अन्य",
+    "customCropTypeLabel": "फसल का प्रकार लिखें",
+    "customCropTypePlaceholder": "फसल का प्रकार दर्ज करें",
+    "customSoilTypeLabel": "मिट्टी का प्रकार लिखें",
+    "customSoilTypePlaceholder": "मिट्टी का प्रकार दर्ज करें",
+    "customFarmingMethodLabel": "खेती की विधि लिखें",
+    "customFarmingMethodPlaceholder": "खेती की विधि दर्ज करें",
     "cropTypes": {
       "rice": "धान",
       "wheat": "गेहूं",
@@ -581,8 +759,26 @@
     },
     "errors": {
       "required": "यह फ़ील्ड आवश्यक है",
-      "invalidAcres": "कृपया एक वैध क्षेत्र दर्ज करें"
+      "invalidAcres": "कृपया एक वैध क्षेत्र दर्ज करें",
+      "invalidGrowingPeriod": "कृपया एक वैध विकास अवधि दर्ज करें",
+      "invalidPlantingDate": "कृपया एक वैध बुवाई की तारीख दर्ज करें",
+      "invalidHarvestDate": "कृपया एक वैध कटाई की तारीख दर्ज करें",
+      "invalidDateRange": "कटाई की तारीख बुवाई की तारीख के बाद होनी चाहिए",
+      "invalidSellingPrice": "कृपया एक वैध बिक्री मूल्य दर्ज करें"
     }
+  },
+  "units": {
+    "kg": "किलो",
+    "kgShort": "किलो",
+    "tons": "टन",
+    "tonsShort": "टन",
+    "percent": "प्रतिशत",
+    "rupees": "रुपये",
+    "perKgSpeech": "प्रति किलो"
+  },
+  "speech": {
+    "to": "से",
+    "outOf100": "100 में से"
   },
   "oldPrediction": {
     "title": "फसल भविष्यवाणी",
@@ -632,7 +828,23 @@
       "waterRequirement": "मध्यम",
       "fertilizerSuggestion": "नाइट्रोजन-आधारित",
       "harvestReadiness": "समय पर"
-    }
+    },
+    "financialConfidenceTitle": "वित्तीय विश्वास",
+    "confidencePercent": "विश्वास",
+    "climateScore": "जलवायु स्कोर",
+    "predictedYieldForArea": "आपके क्षेत्र के लिए अनुमानित उपज",
+    "financialProjectionTitle": "वित्तीय अनुमान",
+    "totalRevenue": "कुल आय",
+    "marketPrice": "बाज़ार मूल्य",
+    "yieldTons": "उपज (टन)",
+    "cropHealthTitle": "फसल स्वास्थ्य",
+    "healthPercent": "स्वास्थ्य",
+    "healthStatus": "स्थिति",
+    "healthNotes": "नोट्स",
+    "riskAnalysisTitle": "जोखिम विश्लेषण",
+    "soilHealth": "मिट्टी की सेहत",
+    "climateCondition": "जलवायु स्थिति",
+    "additionalRisks": "अन्य जोखिम"
   },
   "analyzer": {
     "title": "दस्तावेज़ विश्लेषक",
@@ -653,6 +865,13 @@
     "reanalyze": "फिर से विश्लेषण करें",
     "listen": "सुनें",
     "stop": "रोकें",
+    "askQuestion": "प्रश्न पूछें",
+    "askQuestionTitle": "इस दस्तावेज़ के बारे में प्रश्न पूछें",
+    "askQuestionHint": "Gemini केवल इसी दस्तावेज़ के आधार पर उत्तर देगा।",
+    "askQuestionPlaceholder": "अपना प्रश्न लिखें...",
+    "askQuestionEmpty": "उदाहरण: “अंतिम तारीख क्या है?” या “इसमें कितनी राशि लिखी है?”",
+    "thinking": "सोच रहा है...",
+    "processingAudio": "ऑडियो प्रोसेस हो रहा है...",
     "actionRequired": "आवश्यक कार्रवाई",
     "importantAction": "महत्वपूर्ण कार्रवाई",
     "uploadNew": "दूसरा दस्तावेज़ अपलोड करें",

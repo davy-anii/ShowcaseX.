@@ -7,6 +7,7 @@ import {
   SafeAreaView,
   Image,
   StyleSheet,
+  BackHandler,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 // @ts-ignore
@@ -14,7 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TrendingUp, MapPin, Users, Leaf, Menu } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { BuyerSideDrawer } from '../components/BuyerSideDrawer';
@@ -29,6 +30,15 @@ export const BuyerDashboardScreen = () => {
   const { t, i18n } = useTranslation();
   const navigation = useNavigation<BuyerDashboardNavigationProp>(); const insets = useSafeAreaInsets();
   const [drawerVisible, setDrawerVisible] = useState(false);
+
+  // Prevent navigating back to auth (or exiting) from dashboard
+  useFocusEffect(
+    React.useCallback(() => {
+      const onBackPress = () => true;
+      const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+      return () => subscription.remove();
+    }, [])
+  );
 
   const tr = (key: string, fallback: string) => {
     try {

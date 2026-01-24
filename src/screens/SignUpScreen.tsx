@@ -14,7 +14,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Sprout, ShoppingBasket, ArrowLeft, Phone } from 'lucide-react-native';
+import { Sprout, ShoppingBasket, Phone } from 'lucide-react-native';
+import BackButton from '@/components/BackButton';
 import { RouteProp, useRoute } from '@react-navigation/native';
 import { CustomInput } from '../components/CustomInput';
 import { Dropdown } from '../components/Dropdown';
@@ -341,12 +342,12 @@ export const SignUpScreen = () => {
 
       await saveCurrentUserProfile(profileData);
 
-      // Navigate based on role
-      if (role === 'buyer') {
-        navigation.navigate('BuyerDashboard');
-      } else {
-        navigation.navigate('Dashboard');
-      }
+      // New users always see onboarding
+      const targetScreen = role === 'buyer' ? 'BuyerDashboard' : 'Dashboard';
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'GetStarted', params: { targetScreen } }],
+      });
     } catch (error) {
       console.error('Signup error:', error);
       Alert.alert(tr('signUp.title', 'Sign Up'), tr('signUp.errors.default', 'Sign up failed.'));
@@ -434,33 +435,9 @@ export const SignUpScreen = () => {
         showsVerticalScrollIndicator={false}
       >
         {/* Back Button */}
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          className="mb-8"
-          style={{
-            alignSelf: 'flex-start',
-            backgroundColor: '#D1F4E0',
-            paddingHorizontal: 18,
-            paddingVertical: 10,
-            borderRadius: 24,
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 8,
-            shadowColor: '#16A34A',
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.12,
-            shadowRadius: 5,
-            elevation: 3,
-          }}
-        >
-          <ArrowLeft size={20} color="#16A34A" strokeWidth={2.5} />
-          <Text 
-            className="text-green-600 font-semibold" 
-            style={{ fontSize: 15, lineHeight: 20, letterSpacing: 0.3 }}
-          >
-            {tr('common.back', 'Back')}
-          </Text>
-        </TouchableOpacity>
+        <View className="mb-8">
+          <BackButton />
+        </View>
 
         {/* Header */}
         <View className="mb-10">

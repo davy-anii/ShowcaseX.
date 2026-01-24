@@ -129,18 +129,35 @@ let auth: Auth;
 
 try {
   // Try to use React Native persistence with AsyncStorage
-  // Use the proper import for Firebase 12.x
-  const { getReactNativePersistence } = require('firebase/auth');
-
-  auth = initializeAuth(app, {
-    persistence: getReactNativePersistence(AsyncStorage),
-  });
+  const { getReactNativePersistence: getRNPersistence } = require('firebase/auth');
   
+  auth = initializeAuth(app, {
+    persistence: getRNPersistence(AsyncStorage),
+  });
+
   console.log('✅ Firebase Auth initialized with AsyncStorage persistence');
+  
+  // Add a global listener to log auth state changes for debugging
+  auth.onAuthStateChanged((user) => {
+    if (user) {
+      console.log('🔐 Auth State: User signed in -', user.uid, user.email || user.phoneNumber);
+    } else {
+      console.log('🔓 Auth State: User signed out');
+    }
+  });
 } catch (error) {
-  // Fallback: if getReactNativePersistence is not available, use default getAuth
-  console.warn('Using default auth persistence. For session persistence, ensure Firebase SDK supports React Native persistence.');
+  // Fallback: use default getAuth which also provides persistence in React Native
+  console.warn('⚠️ React Native persistence setup encountered an issue. Using default auth.');
   auth = getAuth(app);
+  
+  // Add listener for fallback auth too
+  auth.onAuthStateChanged((user) => {
+    if (user) {
+      console.log('🔐 Auth State (fallback): User signed in -', user.uid);
+    } else {
+      console.log('🔓 Auth State (fallback): User signed out');
+    }
+  });
 }
 
 /**

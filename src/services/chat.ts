@@ -64,23 +64,36 @@ const updateThreadAfterMessage = async (args: {
   lastMessageText: string;
 }): Promise<void> => {
   const user = auth.currentUser;
-  if (!user) return;
-
-  const threadRef = doc(db, 'chats', args.threadId);
-  const threadSnap = await getDoc(threadRef);
-  const participantIds = (threadSnap.data()?.participantIds ?? []) as string[];
-  const otherUid = participantIds.find((id) => id && id !== user.uid);
-
-  const update: Record<string, any> = {
-    lastMessageText: args.lastMessageText,
-    lastMessageAt: args.createdAt,
-    updatedAt: serverTimestamp(),
-  };
-  if (otherUid) {
-    update[`unreadBy.${otherUid}`] = increment(1);
+  if (!user) {
+    console.error('updateThreadAfterMessage: No authenticated user');
+    return;
   }
 
-  await updateDoc(threadRef, update);
+  try {
+    const threadRef = doc(db, 'chats', args.threadId);
+    const threadSnap = await getDoc(threadRef);
+    if (!threadSnap.exists()) {
+      console.warn('Chat thread not found for update:', args.threadId);
+      return;
+    }
+
+    const participantIds = (threadSnap.data()?.participantIds ?? []) as string[];
+    const otherUid = participantIds.find((id) => id && id !== user.uid);
+
+    const update: Record<string, any> = {
+      lastMessageText: args.lastMessageText,
+      lastMessageAt: args.createdAt,
+      updatedAt: serverTimestamp(),
+    };
+    if (otherUid) {
+      update[`unreadBy.${otherUid}`] = increment(1);
+    }
+
+    await updateDoc(threadRef, update);
+    console.log('Thread updated after message');
+  } catch (e) {
+    console.error('updateThreadAfterMessage error:', e);
+  }
 };
 
 const buildThreadId = (args: {
@@ -102,8 +115,12 @@ export const getOrCreateChatThread = async (args: {
   dealId?: string;
 }): Promise<{ success: true; thread: ChatThread } | { success: false; message: string }> => {
   const user = auth.currentUser;
-  if (!user) return { success: false, message: 'Not signed in.' };
+  if (!user) {
+    console.error('getOrCreateChatThread: No authenticated user');
+    return { success: false, message: 'Not signed in. Please log out and log back in.' };
+  }
 
+  console.log('getOrCreateChatThread: user=', user.uid, 'buyerId=', args.buyerId, 'farmerId=', args.farmerId);
   const threadId = buildThreadId(args);
   const threadRef = doc(db, 'chats', threadId);
 
@@ -111,14 +128,17 @@ export const getOrCreateChatThread = async (args: {
     const snap = await getDoc(threadRef);
     if (snap.exists()) {
       const data = snap.data() as Omit<ChatThread, 'id'>;
+      console.log('Chat thread already exists:', threadId);
       return { success: true, thread: { id: threadId, ...(data as any) } };
     }
 
     const participantIds: [string, string] = [args.buyerId, args.farmerId];
     if (!participantIds.includes(user.uid)) {
+      console.error('User not a participant:', user.uid, 'participants:', participantIds);
       return { success: false, message: 'You are not a participant of this chat.' };
     }
 
+    console.log('Creating new chat thread:', threadId);
     const thread: Omit<ChatThread, 'id'> = {
       participantIds,
       buyerId: args.buyerId,
@@ -141,10 +161,11 @@ export const getOrCreateChatThread = async (args: {
     };
 
     await setDoc(threadRef, thread, { merge: false });
+    console.log('Chat thread created successfully:', threadId);
     return { success: true, thread: { id: threadId, ...(thread as any) } };
   } catch (e) {
     console.error('getOrCreateChatThread error:', e);
-    return { success: false, message: 'Failed to open chat.' };
+    return { success: false, message: `Failed to open chat: ${e instanceof Error ? e.message : 'Unknown error'}` };
   }
 };
 
@@ -176,8 +197,12 @@ export const sendChatMessage = async (args: {
   text: string;
 }): Promise<{ success: true } | { success: false; message: string }> => {
   const user = auth.currentUser;
-  if (!user) return { success: false, message: 'Not signed in.' };
+  if (!user) {
+    console.error('sendChatMessage: No authenticated user');
+    return { success: false, message: 'Not signed in. Please log out and log back in.' };
+  }
 
+  console.log('sendChatMessage: user=', user.uid, 'threadId=', args.threadId);
   const text = args.text.trim();
   if (!text) return { success: false, message: 'Empty message.' };
 
@@ -198,10 +223,11 @@ export const sendChatMessage = async (args: {
       lastMessageText: text,
     });
 
+    console.log('Message sent successfully');
     return { success: true };
   } catch (e) {
     console.error('sendChatMessage error:', e);
-    return { success: false, message: 'Failed to send message.' };
+    return { success: false, message: `Failed to send message: ${e instanceof Error ? e.message : 'Unknown error'}` };
   }
 };
 
@@ -211,8 +237,12 @@ export const sendChatLocationMessage = async (args: {
   lng: number;
 }): Promise<{ success: true } | { success: false; message: string }> => {
   const user = auth.currentUser;
-  if (!user) return { success: false, message: 'Not signed in.' };
+  if (!user) {
+    console.error('sendChatLocationMessage: No authenticated user');
+    return { success: false, message: 'Not signed in. Please log out and log back in.' };
+  }
 
+  console.log('sendChatLocationMessage: user=', user.uid, 'threadId=', args.threadId);
   try {
     const createdAt = Timestamp.now();
     const messagesRef = collection(db, 'chats', args.threadId, 'messages');
@@ -234,10 +264,11 @@ export const sendChatLocationMessage = async (args: {
       lastMessageText: 'Location',
     });
 
+    console.log('Location shared successfully');
     return { success: true };
   } catch (e) {
     console.error('sendChatLocationMessage error:', e);
-    return { success: false, message: 'Failed to share location.' };
+    return { success: false, message: `Failed to share location: ${e instanceof Error ? e.message : 'Unknown error'}` };
   }
 };
 
@@ -245,18 +276,23 @@ export const markChatThreadRead = async (
   threadId: string
 ): Promise<{ success: true } | { success: false; message: string }> => {
   const user = auth.currentUser;
-  if (!user) return { success: false, message: 'Not signed in.' };
+  if (!user) {
+    console.error('markChatThreadRead: No authenticated user');
+    return { success: false, message: 'Not signed in. Please log out and log back in.' };
+  }
 
+  console.log('Marking thread as read:', threadId, 'for user:', user.uid);
   try {
     await updateDoc(doc(db, 'chats', threadId), {
       [`unreadBy.${user.uid}`]: 0,
       [`lastReadAtBy.${user.uid}`]: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
+    console.log('Thread marked as read successfully');
     return { success: true };
   } catch (e) {
     console.error('markChatThreadRead error:', e);
-    return { success: false, message: 'Failed to mark as read.' };
+    return { success: false, message: `Failed to mark as read: ${e instanceof Error ? e.message : 'Unknown error'}` };
   }
 };
 
@@ -265,17 +301,21 @@ export const subscribeToChatUnreadCount = (
   uid: string,
   onCount: (count: number) => void
 ): (() => void) => {
+  console.log('Subscribing to unread count for thread:', threadId, 'uid:', uid);
   const ref = doc(db, 'chats', threadId);
   return onSnapshot(
     ref,
     (snap) => {
       if (!snap.exists()) {
+        console.log('Chat thread does not exist:', threadId);
         onCount(0);
         return;
       }
       const data = snap.data() as any;
       const unread = Number(data?.unreadBy?.[uid] ?? 0);
-      onCount(Number.isFinite(unread) ? unread : 0);
+      const finalCount = Number.isFinite(unread) ? unread : 0;
+      console.log('Unread count updated:', finalCount, 'for thread:', threadId);
+      onCount(finalCount);
     },
     (err) => {
       console.error('subscribeToChatUnreadCount error:', err);
@@ -293,8 +333,12 @@ export const updateMyLiveLocation = async (args: {
   speed?: number;
 }): Promise<{ success: true } | { success: false; message: string }> => {
   const user = auth.currentUser;
-  if (!user) return { success: false, message: 'Not signed in.' };
+  if (!user) {
+    console.error('updateMyLiveLocation: No authenticated user');
+    return { success: false, message: 'Not signed in. Please log out and log back in.' };
+  }
 
+  console.log('Updating live location for user:', user.uid, 'thread:', args.threadId, 'coords:', args.lat, args.lng);
   try {
     await updateDoc(doc(db, 'chats', args.threadId), {
       [`liveLocationBy.${user.uid}`]: {
@@ -308,10 +352,11 @@ export const updateMyLiveLocation = async (args: {
       },
       updatedAt: serverTimestamp(),
     });
+    console.log('Live location updated successfully');
     return { success: true };
   } catch (e) {
     console.error('updateMyLiveLocation error:', e);
-    return { success: false, message: 'Failed to share location.' };
+    return { success: false, message: `Failed to share live location: ${e instanceof Error ? e.message : 'Unknown error'}` };
   }
 };
 
@@ -320,21 +365,25 @@ export const subscribeToLiveLocation = (
   participantUid: string,
   onLocation: (location: { lat: number; lng: number; updatedAt?: Date } | null) => void
 ): (() => void) => {
+  console.log('Subscribing to live location for participant:', participantUid, 'thread:', threadId);
   const ref = doc(db, 'chats', threadId);
   return onSnapshot(
     ref,
     (snap) => {
       if (!snap.exists()) {
+        console.log('Chat thread does not exist for live location:', threadId);
         onLocation(null);
         return;
       }
       const data = snap.data() as any;
       const raw = data?.liveLocationBy?.[participantUid];
       if (!raw || typeof raw.lat !== 'number' || typeof raw.lng !== 'number') {
+        console.log('No valid location data for participant:', participantUid);
         onLocation(null);
         return;
       }
       const updatedAt = raw.updatedAtClient?.toDate?.() ?? undefined;
+      console.log('Live location received:', raw.lat, raw.lng, 'updated at:', updatedAt);
       onLocation({ lat: raw.lat, lng: raw.lng, updatedAt });
     },
     (err) => {

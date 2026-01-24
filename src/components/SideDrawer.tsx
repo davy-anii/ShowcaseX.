@@ -10,13 +10,13 @@ import {
   StyleSheet,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { User, Wheat, FileText, ScanLine, Bot, Users, X, ChevronRight, Menu } from 'lucide-react-native';
+import { User, Wheat, FileText, ScanLine, Bot, Users, X, ChevronRight, Menu, Calendar } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 
 interface SideDrawerProps {
   visible: boolean;
   onClose: () => void;
-  onNavigate: (screen: 'Profile' | 'CropPrediction' | 'DocumentAnalyzer' | 'CropDiseaseDetection' | 'ContactBuyer') => void;
+  onNavigate: (screen: 'Profile' | 'CropPrediction' | 'CropPlanner' | 'DocumentAnalyzer' | 'CropDiseaseDetection' | 'ContactBuyer') => void;
   onChatbotOpen: () => void;
   notificationCount?: number;
 }
@@ -40,6 +40,7 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({
   const item4Anim = useRef(new Animated.Value(0)).current;
   const item5Anim = useRef(new Animated.Value(0)).current;
   const item6Anim = useRef(new Animated.Value(0)).current;
+  const item7Anim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (visible) {
@@ -53,6 +54,7 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({
       item4Anim.setValue(0);
       item5Anim.setValue(0);
       item6Anim.setValue(0);
+      item7Anim.setValue(0);
 
       // Start popup animation
       Animated.parallel([
@@ -93,6 +95,9 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({
       setTimeout(() => {
         Animated.timing(item6Anim, { toValue: 1, duration: 300, useNativeDriver: true }).start();
       }, 400);
+      setTimeout(() => {
+        Animated.timing(item7Anim, { toValue: 1, duration: 300, useNativeDriver: true }).start();
+      }, 450);
     } else {
       slideAnim.setValue(300);
       fadeAnim.setValue(0);
@@ -103,6 +108,7 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({
       item4Anim.setValue(0);
       item5Anim.setValue(0);
       item6Anim.setValue(0);
+      item7Anim.setValue(0);
     }
   }, [visible]);
 
@@ -111,13 +117,18 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({
       if (!i18n || !i18n.isInitialized) {
         return fallback;
       }
-      return t(key) || fallback;
+      const translated = t(key, { defaultValue: fallback, returnObjects: false } as any) as unknown;
+      if (typeof translated === 'string') {
+        // If i18n returns the key itself (missing translation), use fallback.
+        return translated === key ? fallback : translated;
+      }
+      return fallback;
     } catch {
       return fallback;
     }
   };
 
-  const handleNavigate = (screen: 'Profile' | 'CropPrediction' | 'DocumentAnalyzer' | 'CropDiseaseDetection' | 'ContactBuyer') => {
+  const handleNavigate = (screen: 'Profile' | 'CropPrediction' | 'CropPlanner' | 'DocumentAnalyzer' | 'CropDiseaseDetection' | 'ContactBuyer') => {
     onClose();
     onNavigate(screen);
   };
@@ -591,6 +602,7 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({
                       backgroundColor: '#FFFFFF',
                       borderRadius: 16,
                       padding: 12,
+                      marginBottom: 8,
                       flexDirection: 'row',
                       alignItems: 'center',
                       borderWidth: 1.5,
@@ -628,6 +640,66 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({
                         color: '#6B7280',
                       }}>
                         {tr('chatbot.subtitle', 'Get advice')}
+                      </Text>
+                    </View>
+                    <ChevronRight size={16} color="#9CA3AF" strokeWidth={2} />
+                  </TouchableOpacity>
+                  </Animated.View>
+
+                  {/* Crop Planner */}
+                  <Animated.View style={{
+                    opacity: item7Anim,
+                    transform: [{
+                      translateX: item7Anim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [50, 0],
+                      })
+                    }]
+                  }}>
+                    <TouchableOpacity
+                    onPress={() => handleNavigate('CropPlanner')}
+                    activeOpacity={0.7}
+                    style={{
+                      backgroundColor: '#FFFFFF',
+                      borderRadius: 16,
+                      padding: 12,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      borderWidth: 1.5,
+                      borderColor: '#D1FAE5',
+                      shadowColor: '#10B981',
+                      shadowOffset: { width: 0, height: 1 },
+                      shadowOpacity: 0.08,
+                      shadowRadius: 4,
+                      elevation: 2,
+                    }}
+                  >
+                    <LinearGradient
+                      colors={['#16A34A', '#15803D']}
+                      style={{
+                        borderRadius: 12,
+                        width: 38,
+                        height: 38,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Calendar size={20} color="#FFFFFF" strokeWidth={2.5} />
+                    </LinearGradient>
+                    <View style={{ flex: 1, marginLeft: 10 }}>
+                      <Text style={{
+                        fontSize: 14,
+                        fontWeight: '700',
+                        color: '#1F2937',
+                        marginBottom: 1,
+                      }}>
+                        {tr('drawer.cropPlanner', 'Crop Planner')}
+                      </Text>
+                      <Text style={{
+                        fontSize: 10,
+                        color: '#6B7280',
+                      }}>
+                        {tr('drawer.cropPlannerSubtitle', 'Plan schedule')}
                       </Text>
                     </View>
                     <ChevronRight size={16} color="#9CA3AF" strokeWidth={2} />

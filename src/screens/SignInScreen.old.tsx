@@ -14,7 +14,8 @@ import { useTranslation } from 'react-i18next';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useRoute } from '@react-navigation/native';
-import { Sprout, ShoppingBasket, ArrowLeft } from 'lucide-react-native';
+import { Sprout, ShoppingBasket } from 'lucide-react-native';
+import BackButton from '@/components/BackButton';
 import { CustomInput, PasswordInput } from '../components/CustomInput';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { signIn, signInWithGoogle, fetchCurrentUserProfile } from '../services/auth';
@@ -240,43 +241,18 @@ export const SignInScreen = () => {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
+        {/* Back Button */}
+        <View className="mb-8">
+          <BackButton />
+        </View>
+
         {/* Back Button - Professional Capsule Design */}
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          className="mb-8"
-          style={{
-            alignSelf: 'flex-start',
-            backgroundColor: '#D1F4E0',
-            paddingHorizontal: 18,
-            paddingVertical: 10,
-            borderRadius: 24,
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 8,
-            shadowColor: '#16A34A',
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.12,
-            shadowRadius: 5,
-            elevation: 3,
-          }}
-        >
-          <ArrowLeft size={20} color="#16A34A" strokeWidth={2.5} />
-          <Text 
-            className="text-green-600 font-semibold" 
-            style={{ 
-              fontSize: 15, 
-              lineHeight: 20, 
-              letterSpacing: 0.3,
-              flexShrink: 0,
-              minWidth: 70,
-            }}
-            numberOfLines={1}
-          >
-            {(() => {
-              try {
-                const translated = t('common.back');
-                return translated === 'common.back' ? 'Back' : translated;
-              } catch {
+        <View style={{ display: 'none' }}>
+          {(() => {
+            try {
+              const translated = t('common.back');
+              return translated === 'common.back' ? 'Back' : translated;
+            } catch {
                 return 'Back';
               }
             })()}

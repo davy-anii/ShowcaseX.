@@ -178,8 +178,17 @@ The last character of your response must be ]`;
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Perplexity API error:', response.status, errorText);
-      throw new Error(`API request failed: ${response.status}`);
+      const status = response.status;
+      // Invalid/unauthorized keys are common during setup; fall back quietly to demo news.
+      if (status === 401 || status === 403) {
+        console.warn(
+          `Perplexity API unauthorized (${status}). Check EXPO_PUBLIC_PERPLEXITY_API_KEY. Using demo news.`
+        );
+        return getDemoNews(state);
+      }
+
+      console.error('Perplexity API error:', status, errorText);
+      throw new Error(`API request failed: ${status}`);
     }
 
     const data = await response.json();

@@ -13,10 +13,10 @@ import {
   Linking,
 } from 'react-native';
 import {
-  ArrowLeft,
   MapPin,
   Send,
 } from 'lucide-react-native';
+import BackButton from '@/components/BackButton';
 import { useTranslation } from 'react-i18next';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -74,6 +74,7 @@ export const ChatScreen = () => {
   const [loadingThread, setLoadingThread] = useState(false);
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [sendingLocation, setSendingLocation] = useState(false);
+  const [authReady, setAuthReady] = useState(false);
 
   const tr = (key: string, fallback: string) => {
     try {
@@ -83,13 +84,37 @@ export const ChatScreen = () => {
     }
   };
 
+  // Wait for auth to initialize
+  useEffect(() => {
+    const unsub = auth.onAuthStateChanged((user) => {
+      console.log('ChatScreen - Auth state changed:', user ? `User ${user.uid}` : 'No user');
+      setAuthReady(true);
+      if (!user) {
+        console.warn('ChatScreen: No authenticated user');
+      }
+    });
+    return unsub;
+  }, []);
+
   useEffect(() => {
     scrollViewRef.current?.scrollToEnd({ animated: true });
   }, [messages]);
 
+  // Initialize chat thread
   useEffect(() => {
+    if (!authReady) return; // Wait for auth to initialize
+    
     const user = auth.currentUser;
-    if (!user) return;
+    if (!user) {
+      console.error('ChatScreen: Cannot initialize chat - no authenticated user');
+      Alert.alert(
+        tr('chat.error', 'Error'),
+        tr('chat.notSignedIn', 'Please sign in to use chat. Try logging out and back in.')
+      );
+      return;
+    }
+
+    console.log('Initializing chat for user:', user.uid);
 
     if (!buyerId || !farmerId) {
       // Backwards-compat navigation (no IDs). Keep screen functional but without DB chat.
@@ -122,7 +147,7 @@ export const ChatScreen = () => {
     return () => {
       cancelled = true;
     };
-  }, [buyerId, farmerId, buyerName, farmerName, dealId]);
+  }, [buyerId, farmerId, buyerName, farmerName, dealId, authReady]);
 
   useEffect(() => {
     if (!threadId) return;
@@ -174,9 +199,11 @@ export const ChatScreen = () => {
   const handleSendMessage = async () => {
     const user = auth.currentUser;
     if (!user) {
-      Alert.alert(tr('chat.error', 'Error'), tr('chat.notSignedIn', 'Please sign in again.'));
+      console.error('handleSendMessage: No authenticated user');
+      Alert.alert(tr('chat.error', 'Error'), tr('chat.notSignedIn', 'Please sign in again. Try logging out and back in.'));
       return;
     }
+    console.log('Sending message as user:', user.uid);
     if (!threadId) {
       Alert.alert(
         tr('chat.error', 'Error'),
@@ -205,9 +232,11 @@ export const ChatScreen = () => {
   const handleShareLocation = async () => {
     const user = auth.currentUser;
     if (!user) {
-      Alert.alert(tr('chat.error', 'Error'), tr('chat.notSignedIn', 'Please sign in again.'));
+      console.error('handleShareLocation: No authenticated user');
+      Alert.alert(tr('chat.error', 'Error'), tr('chat.notSignedIn', 'Please sign in again. Try logging out and back in.'));
       return;
     }
+    console.log('Sharing location as user:', user.uid);
     if (!threadId) {
       Alert.alert(
         tr('chat.error', 'Error'),
@@ -260,13 +289,9 @@ export const ChatScreen = () => {
           }}
         >
           <View className="flex-row items-center flex-1">
-            <TouchableOpacity
-              onPress={() => navigation.goBack()}
-              className="mr-4 p-1"
-              activeOpacity={0.6}
-            >
-              <ArrowLeft size={26} color="#fff" strokeWidth={2.5} />
-            </TouchableOpacity>
+            <View className="mr-4">
+              <BackButton />
+            </View>
             <TouchableOpacity 
               className="bg-white/35 rounded-full w-12 h-12 items-center justify-center mr-3"
               activeOpacity={0.7}

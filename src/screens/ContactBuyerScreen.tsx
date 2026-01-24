@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   SafeAreaView,
   Linking,
-  Alert,
   Image,
   Modal,
   TextInput,
@@ -17,7 +16,6 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import {
-  ArrowLeft,
   Phone,
   MessageCircle,
   Mail,
@@ -32,7 +30,12 @@ import {
   Package,
   Trash2,
   ChevronDown,
+  ImagePlus,
+  ShieldAlert,
+  ShieldCheck,
 } from 'lucide-react-native';
+import BackButton from '@/components/BackButton';
+import { CustomAlert } from '@/components/CustomAlert';
 import { useTranslation } from 'react-i18next';
 import { localizeNumber } from '../utils/numberLocalization';
 import { useNavigation } from '@react-navigation/native';
@@ -47,9 +50,10 @@ import {
   getFarmerMarketDeals,
   acceptMarketDeal,
   rejectMarketDeal,
+  counterMarketDeal,
+  markFarmerDealSeen,
   MarketDeal,
 } from '../services/products';
-import { markFarmerDealSeen } from '../services/products';
 import { validateProductUpload } from '../services/gemini';
 import { INDIA_LOCATIONS } from '../constants/locations';
 import {
@@ -93,6 +97,7 @@ export const ContactBuyerScreen = () => {
   const acceptedDealsListRef = useRef<FlatList<MarketDeal> | null>(null);
   const [acceptedDealsIndex, setAcceptedDealsIndex] = useState(0);
   
+  const [authReady, setAuthReady] = useState(false);
   const [notifications, setNotifications] = useState(0);
   const [marketDeals, setMarketDeals] = useState<MarketDeal[]>([]);
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -109,17 +114,76 @@ export const ContactBuyerScreen = () => {
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
+
+  // Counter negotiation (farmer responding back)
+  const [showCounterModal, setShowCounterModal] = useState(false);
+  const [counterDeal, setCounterDeal] = useState<MarketDeal | null>(null);
+  const [counterQuantity, setCounterQuantity] = useState('');
+  const [counterPrice, setCounterPrice] = useState('');
+  const [counterSubmitting, setCounterSubmitting] = useState(false);
+
   const [unreadByDealId, setUnreadByDealId] = useState<Record<string, number>>({});
   const lastLocationUpdateMsRef = useRef(0);
 
-  // Fetch products + deal notifications after auth is ready
+  // Custom Alert States
+  const [alertConfig, setAlertConfig] = useState<{
+    visible: boolean;
+    type: 'success' | 'error' | 'warning' | 'info';
+    title: string;
+    message: string;
+    buttons: Array<{ text: string; onPress?: () => void; style?: 'default' | 'cancel' | 'destructive' }>;
+  }>({
+    visible: false,
+    type: 'info',
+    title: '',
+    message: '',
+    buttons: [{ text: 'OK' }],
+  });
+
+  const showAlert = (
+    type: 'success' | 'error' | 'warning' | 'info',
+    title: string,
+    message: string,
+    buttons: Array<{ text: string; onPress?: () => void; style?: 'default' | 'cancel' | 'destructive' }> = [{ text: tr('contactBuyer.ok', 'OK') }]
+  ) => {
+    setAlertConfig({
+      visible: true,
+      type,
+      title,
+      message,
+      buttons,
+    });
+  };
+
+  const hideAlert = () => {
+    setAlertConfig(prev => ({ ...prev, visible: false }));
+  };
+
+  // Wait for auth to initialize, then load data
   useEffect(() => {
-    const unsub = auth.onAuthStateChanged(() => {
-      loadProducts();
-      loadMarketDeals();
+    const unsub = auth.onAuthStateChanged((user) => {
+      console.log('Auth state changed:', user ? `User ${user.uid}` : 'No user');
+      setAuthReady(true);
+      if (user) {
+        loadProducts();
+        loadMarketDeals();
+      } else {
+        console.warn('No authenticated user - redirecting may be needed');
+        setUploadedProducts([]);
+        setMarketDeals([]);
+      }
     });
     return unsub;
   }, []);
+
+  // Refresh when returning to this screen so accepted deals and inventory updates show reliably.
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      loadProducts();
+      loadMarketDeals();
+    });
+    return unsubscribe;
+  }, [navigation]);
 
   // Auto-detect farmer location when upload modal is opened
   useEffect(() => {
@@ -200,7 +264,8 @@ export const ContactBuyerScreen = () => {
       console.error('Error loading products:', error);
       // Only show error if it's not a "no products" scenario
       if (error?.message && !error.message.includes('permissions')) {
-        Alert.alert(
+        showAlert(
+          'error',
           tr('contactBuyer.error', 'Error'),
           'Failed to load products. Please try again.'
         );
@@ -231,6 +296,40 @@ export const ContactBuyerScreen = () => {
     }
   };
 
+  // When the buyer accepts a deal, Firestore rules typically prevent the buyer from deleting the
+  // farmer's product doc. So the farmer client performs the cleanup when it observes an accepted deal.
+  useEffect(() => {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    const acceptedProductIds = new Set(
+      marketDeals
+        .filter((d) => d.status === 'accepted')
+        .map((d) => d.productId)
+        .filter(Boolean)
+    );
+
+    if (acceptedProductIds.size === 0) return;
+
+    const productsToRemove = uploadedProducts.filter((p) => acceptedProductIds.has(p.id));
+    if (productsToRemove.length === 0) return;
+
+    // Optimistically hide the products immediately.
+    setUploadedProducts((prev) => prev.filter((p) => !acceptedProductIds.has(p.id)));
+
+    // Best-effort backend cleanup; avoid alert loops.
+    (async () => {
+      try {
+        await Promise.all(
+          productsToRemove.map((p) => deleteProductWithImage(p.id, p.image).catch(() => null))
+        );
+      } finally {
+        // Re-sync from Firestore for correctness.
+        await loadProducts();
+      }
+    })();
+  }, [marketDeals, uploadedProducts]);
+
   // Keep badge count derived from deals so it stays correct after reload.
   useEffect(() => {
     const pendingUnseen = marketDeals.filter((d) => d.status === 'pending' && d.farmerSeen !== true);
@@ -250,7 +349,7 @@ export const ContactBuyerScreen = () => {
       await loadMarketDeals();
     } catch (error) {
       console.error('Error marking as read:', error);
-      Alert.alert(tr('contactBuyer.error', 'Error'), tr('contactBuyer.failedToMarkRead', 'Failed to mark as read'));
+      showAlert('error', tr('contactBuyer.error', 'Error'), tr('contactBuyer.failedToMarkRead', 'Failed to mark as read'));
       // Reload to sync if there was an error
       await loadMarketDeals();
     }
@@ -271,7 +370,7 @@ export const ContactBuyerScreen = () => {
       await loadMarketDeals();
     } catch (error) {
       console.error('Error marking all as read:', error);
-      Alert.alert(tr('contactBuyer.error', 'Error'), tr('contactBuyer.failedToMarkAllRead', 'Failed to mark all as read'));
+      showAlert('error', tr('contactBuyer.error', 'Error'), tr('contactBuyer.failedToMarkAllRead', 'Failed to mark all as read'));
       // Reload to sync if there was an error
       await loadMarketDeals();
     }
@@ -288,6 +387,29 @@ export const ContactBuyerScreen = () => {
     } catch {
       return fallback;
     }
+  };
+
+  // Function to translate validation error messages
+  const translateValidationError = (reason: string): string => {
+    // Map common English error messages to i18n keys
+    const errorMappings: Record<string, string> = {
+      'Image does not show food or agricultural product': 'validationError.notFoodProduct',
+      'The provided name is offensive and not recognizable as a food item': 'validationError.offensiveName',
+      'Image quality is too low to identify': 'validationError.lowQuality',
+      'Upload appears to be a screenshot or graphic': 'validationError.notPhoto',
+      'Could not identify the product in the image': 'validationError.unidentifiable',
+    };
+
+    // Try to find a matching error message key
+    for (const [english, key] of Object.entries(errorMappings)) {
+      if (reason.toLowerCase().includes(english.toLowerCase())) {
+        const translated = i18n.exists(key) ? (t(key) as string) : english;
+        return translated;
+      }
+    }
+
+    // If no exact match found, return original reason
+    return reason;
   };
 
   // Hardcoded buyer contacts with notifications
@@ -324,7 +446,8 @@ export const ContactBuyerScreen = () => {
   const handlePhoneCall = (phone: string) => {
     const phoneNumber = phone.replace(/\s+/g, '');
     Linking.openURL(`tel:${phoneNumber}`).catch(() => {
-      Alert.alert(
+      showAlert(
+        'error',
         tr('contactBuyer.error', 'Error'),
         tr('contactBuyer.phoneError', 'Unable to make phone call')
       );
@@ -334,7 +457,8 @@ export const ContactBuyerScreen = () => {
   const handleSMS = (phone: string) => {
     const phoneNumber = phone.replace(/\s+/g, '');
     Linking.openURL(`sms:${phoneNumber}`).catch(() => {
-      Alert.alert(
+      showAlert(
+        'error',
         tr('contactBuyer.error', 'Error'),
         tr('contactBuyer.smsError', 'Unable to send SMS')
       );
@@ -343,7 +467,8 @@ export const ContactBuyerScreen = () => {
 
   const handleEmail = (email: string) => {
     Linking.openURL(`mailto:${email}`).catch(() => {
-      Alert.alert(
+      showAlert(
+        'error',
         tr('contactBuyer.error', 'Error'),
         tr('contactBuyer.emailError', 'Unable to send email')
       );
@@ -362,9 +487,10 @@ export const ContactBuyerScreen = () => {
     // Request permission
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert(
+      showAlert(
+        'warning',
         tr('contactBuyer.error', 'Error'),
-        'Sorry, we need camera roll permissions to upload images!'
+        tr('contactBuyer.permissionRequired', 'Sorry, we need camera roll permissions to upload images!')
       );
       return;
     }
@@ -395,30 +521,36 @@ export const ContactBuyerScreen = () => {
         : selectedFarmerLocation.trim();
 
     if (!productName || !productRate || !productQuantity || !farmerLocation) {
-      Alert.alert(
+      showAlert(
+        'warning',
         tr('contactBuyer.error', 'Error'),
-        'Please fill all fields (including location)'
+        tr('contactBuyer.fillAllFields', 'Please fill all fields (including location)')
       );
       return;
     }
 
     // Check if image is provided
     if (!productImage) {
-      Alert.alert(
+      showAlert(
+        'warning',
         tr('contactBuyer.error', 'Error'),
-        'Please upload a product image for validation'
+        tr('contactBuyer.uploadImageRequired', 'Please upload a product image for validation')
       );
       return;
     }
 
     const user = auth.currentUser;
     if (!user) {
-      Alert.alert(
+      console.error('Upload attempted without authentication');
+      showAlert(
+        'error',
         tr('contactBuyer.error', 'Error'),
-        'Please sign in to upload products'
+        tr('contactBuyer.signInRequired', 'Please sign in to upload products. Try logging out and back in.')
       );
       return;
     }
+    
+    console.log('Uploading product for user:', user.uid, user.email);
 
     try {
       setUploading(true);
@@ -436,9 +568,10 @@ export const ContactBuyerScreen = () => {
         console.log('Validation result:', validationResult);
       } catch (validationError: any) {
         console.error('Product validation error:', validationError);
-        Alert.alert(
+        showAlert(
+          'error',
           tr('contactBuyer.error', 'Error'),
-          'Failed to validate product. Please check your internet connection and try again.'
+          tr('contactBuyer.validationFailed', 'Failed to validate product. Please check your internet connection and try again.')
         );
         setUploading(false);
         return;
@@ -446,10 +579,12 @@ export const ContactBuyerScreen = () => {
 
       // Step 2: Check if validation passed
       if (!validationResult.isValid) {
-        Alert.alert(
-          'Upload Blocked',
-          `${validationResult.reason}\n\nPlease upload a valid food/agricultural product with a proper name.`,
-          [{ text: 'OK' }]
+        const translatedReason = translateValidationError(validationResult.reason);
+        showAlert(
+          'error',
+          tr('contactBuyer.uploadBlocked', 'Upload Blocked'),
+          `${translatedReason}\n\n${tr('contactBuyer.uploadValidProduct', 'Please upload a valid food/agricultural product with a proper name.')}`,
+          [{ text: tr('contactBuyer.ok', 'OK'), onPress: () => setUploading(false) }]
         );
         setUploading(false);
         return;
@@ -459,19 +594,21 @@ export const ContactBuyerScreen = () => {
       const correctedName = validationResult.validatedName;
       if (correctedName.toLowerCase() !== productName.toLowerCase()) {
         // Ask user to confirm the corrected name
-        Alert.alert(
-          'Product Name Corrected',
-          `AI detected your product as: "${correctedName}"\n\nOriginal name: "${productName}"\nCategory: ${validationResult.category || 'N/A'}\n\nProceed with the corrected name?`,
+        const categoryText = validationResult.category ? `\n${tr('contactBuyer.category', 'Category:')} ${validationResult.category}` : '';
+        showAlert(
+          'info',
+          tr('contactBuyer.productNameCorrected', 'Product Name Corrected'),
+          `${tr('contactBuyer.aiDetectedProduct', 'AI detected your product as:')} "${correctedName}"\n\n${tr('contactBuyer.originalName', 'Original name:')} "${productName}"${categoryText}\n\n${tr('contactBuyer.proceedWithCorrected', 'Proceed with the corrected name?')}`,
           [
             {
-              text: 'Cancel',
+              text: tr('contactBuyer.cancel', 'Cancel'),
               style: 'cancel',
               onPress: () => {
                 setUploading(false);
               },
             },
             {
-              text: 'Use Corrected Name',
+              text: tr('contactBuyer.useCorrectedName', 'Use Corrected Name'),
               onPress: async () => {
                 await uploadWithValidatedName(correctedName, farmerLocation, user);
               },
@@ -484,7 +621,8 @@ export const ContactBuyerScreen = () => {
       }
     } catch (error: any) {
       console.error('Error in upload process:', error);
-      Alert.alert(
+      showAlert(
+        'error',
         tr('contactBuyer.error', 'Error'),
         error?.message || 'An unexpected error occurred. Please try again.'
       );
@@ -531,9 +669,10 @@ export const ContactBuyerScreen = () => {
 
       console.log('Product upload successful!');
 
-      Alert.alert(
+      showAlert(
+        'success',
         tr('contactBuyer.success', 'Success'),
-        `${validatedName} uploaded successfully!`
+        tr('contactBuyer.productUploaded', '{name} uploaded successfully!').replace('{name}', validatedName)
       );
 
       // Reload products
@@ -566,7 +705,8 @@ export const ContactBuyerScreen = () => {
         errorMessage += 'Please check console for details.';
       }
       
-      Alert.alert(
+      showAlert(
+        'error',
         tr('contactBuyer.error', 'Error'),
         errorMessage
       );
@@ -575,34 +715,41 @@ export const ContactBuyerScreen = () => {
   };
 
   const handleDeleteProduct = async (product: FarmerProduct) => {
-    Alert.alert('Delete Product', `Delete "${product.name}"?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await deleteProductWithImage(product.id, product.image);
-            await loadProducts();
-          } catch (e: any) {
-            Alert.alert('Error', e?.message || 'Failed to delete product');
-          }
+    showAlert(
+      'warning',
+      tr('contactBuyer.deleteProduct', 'Delete Product'),
+      tr('contactBuyer.deleteConfirm', 'Delete "{name}"?').replace('{name}', product.name),
+      [
+        { text: tr('contactBuyer.cancel', 'Cancel'), style: 'cancel' },
+        {
+          text: tr('contactBuyer.delete', 'Delete'),
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteProductWithImage(product.id, product.image);
+              await loadProducts();
+            } catch (e: any) {
+              showAlert('error', tr('contactBuyer.error', 'Error'), e?.message || tr('contactBuyer.failedToDeleteProduct', 'Failed to delete product'));
+            }
+          },
         },
-      },
-    ]);
+      ]
+    );
   };
 
   const handleAcceptMarketDeal = async (deal: MarketDeal) => {
     try {
-      await acceptMarketDeal(deal);
+      await acceptMarketDeal(deal, 'farmer');
       await loadProducts();
       await loadMarketDeals();
-      Alert.alert(
+      showAlert(
+        'success',
         tr('contactBuyer.success', 'Success'),
         tr('contactBuyer.offerAccepted', 'Offer accepted. Buyer has been notified.')
       );
     } catch (e: any) {
-      Alert.alert(
+      showAlert(
+        'error',
         tr('contactBuyer.error', 'Error'),
         e?.message || tr('contactBuyer.failedToAcceptOffer', 'Failed to accept offer')
       );
@@ -611,17 +758,54 @@ export const ContactBuyerScreen = () => {
 
   const handleRejectMarketDeal = async (deal: MarketDeal) => {
     try {
-      await rejectMarketDeal(deal.id);
+      await rejectMarketDeal(deal.id, 'farmer');
       await loadMarketDeals();
-      Alert.alert(
+      showAlert(
+        'info',
         tr('contactBuyer.updated', 'Updated'),
         tr('contactBuyer.offerRejected', 'Offer rejected. Buyer has been notified.')
       );
     } catch (e: any) {
-      Alert.alert(
+      showAlert(
+        'error',
         tr('contactBuyer.error', 'Error'),
         e?.message || tr('contactBuyer.failedToRejectOffer', 'Failed to reject offer')
       );
+    }
+  };
+
+  const openCounterForDeal = (deal: MarketDeal) => {
+    setCounterDeal(deal);
+    setCounterQuantity(String(deal.offerQuantity ?? ''));
+    setCounterPrice(String(deal.offerPrice ?? ''));
+    setShowCounterModal(true);
+  };
+
+  const submitCounterForDeal = async () => {
+    if (!counterDeal) return;
+    const q = Number(counterQuantity);
+    const p = Number(counterPrice);
+    if (!Number.isFinite(q) || q <= 0 || !Number.isFinite(p) || p <= 0) {
+      showAlert('warning', tr('contactBuyer.error', 'Error'), tr('contactBuyer.enterValidQuantityPrice', 'Enter valid quantity and price'));
+      return;
+    }
+
+    try {
+      setCounterSubmitting(true);
+      await counterMarketDeal({
+        dealId: counterDeal.id,
+        actor: 'farmer',
+        offerQuantity: q,
+        offerPrice: p,
+      });
+      setShowCounterModal(false);
+      setCounterDeal(null);
+      await loadMarketDeals();
+      showAlert('success', tr('contactBuyer.updated', 'Updated'), tr('contactBuyer.counterOfferSent', 'Counter offer sent. Buyer has been notified.'));
+    } catch (e: any) {
+      showAlert('error', tr('contactBuyer.error', 'Error'), e?.message || tr('contactBuyer.failedToSendCounter', 'Failed to send counter offer'));
+    } finally {
+      setCounterSubmitting(false);
     }
   };
 
@@ -701,24 +885,9 @@ export const ContactBuyerScreen = () => {
             elevation: 10,
           }}
         >
-          <TouchableOpacity
-            onPress={() => navigation.goBack()}
-            style={{
-              marginBottom: 20,
-              flexDirection: 'row',
-              alignItems: 'center',
-            }}
-          >
-            <ArrowLeft size={24} color="#fff" strokeWidth={2.5} />
-            <Text style={{
-              color: '#fff',
-              fontSize: 16,
-              fontWeight: '600',
-              marginLeft: 8,
-            }}>
-              {tr('contactBuyer.back', 'Back')}
-            </Text>
-          </TouchableOpacity>
+          <View style={{ marginBottom: 20 }}>
+            <BackButton />
+          </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
             <View style={{ flex: 1 }}>
               <Text style={{
@@ -1517,48 +1686,67 @@ export const ContactBuyerScreen = () => {
                     </View>
 
                     {deal.status === 'pending' && (
-                      <View style={{ flexDirection: 'row', marginTop: 14, justifyContent: 'flex-end', gap: 10 }}>
+                      <View style={{ marginTop: 14, gap: 10 }}>
                         <TouchableOpacity
-                          onPress={() => handleRejectMarketDeal(deal)}
+                          onPress={() => openCounterForDeal(deal)}
                           activeOpacity={0.85}
                           style={{
-                            backgroundColor: '#DC2626',
+                            backgroundColor: '#2563EB',
                             borderRadius: 12,
-                            paddingVertical: 10,
-                            paddingHorizontal: 14,
-                            flex: 1,
+                            paddingVertical: 12,
+                            alignItems: 'center',
                           }}
                         >
-                          <Text style={{ color: '#fff', fontWeight: '800', textAlign: 'center' }}>
-                            {tr('contactBuyer.reject', 'Reject')}
+                          <Text style={{ color: '#fff', fontWeight: '900' }}>
+                            {tr('contactBuyer.negotiateBack', 'Negotiate back')}
                           </Text>
                         </TouchableOpacity>
-                        <TouchableOpacity
-                          onPress={() => handleAcceptMarketDeal(deal)}
-                          activeOpacity={0.85}
-                          style={{
-                            backgroundColor: '#16A34A',
-                            borderRadius: 12,
-                            paddingVertical: 10,
-                            paddingHorizontal: 14,
-                            flex: 1,
-                          }}
-                        >
-                          {deal.kind === 'negotiation' ? (
-                            <View style={{ alignItems: 'center' }}>
-                              <Text style={{ color: '#fff', fontWeight: '800', textAlign: 'center' }}>
-                                {tr('contactBuyer.acceptNegotiation', 'Accept Negotiation')}
-                              </Text>
-                              <Text style={{ color: 'rgba(255,255,255,0.92)', fontWeight: '800', fontSize: 12 }}>
-                                ({tr('contactBuyer.accept', 'Accept')})
-                              </Text>
-                            </View>
-                          ) : (
-                            <Text style={{ color: '#fff', fontWeight: '800', textAlign: 'center' }}>
-                              {tr('contactBuyer.accept', 'Accept')}
+
+                        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10 }}>
+                          <TouchableOpacity
+                            onPress={() => handleRejectMarketDeal(deal)}
+                            activeOpacity={0.85}
+                            style={{
+                              backgroundColor: '#DC2626',
+                              borderRadius: 12,
+                              paddingVertical: 12,
+                              paddingHorizontal: 14,
+                              flex: 1,
+                              alignItems: 'center',
+                            }}
+                          >
+                            <Text style={{ color: '#fff', fontWeight: '900', textAlign: 'center' }}>
+                              {tr('contactBuyer.reject', 'Reject')}
                             </Text>
-                          )}
-                        </TouchableOpacity>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => handleAcceptMarketDeal(deal)}
+                            activeOpacity={0.85}
+                            style={{
+                              backgroundColor: '#16A34A',
+                              borderRadius: 12,
+                              paddingVertical: 12,
+                              paddingHorizontal: 14,
+                              flex: 1,
+                              alignItems: 'center',
+                            }}
+                          >
+                            {deal.kind === 'negotiation' ? (
+                              <View style={{ alignItems: 'center' }}>
+                                <Text style={{ color: '#fff', fontWeight: '900', textAlign: 'center' }}>
+                                  {tr('contactBuyer.acceptNegotiation', 'Accept Negotiation')}
+                                </Text>
+                                <Text style={{ color: 'rgba(255,255,255,0.92)', fontWeight: '800', fontSize: 12 }}>
+                                  ({tr('contactBuyer.accept', 'Accept')})
+                                </Text>
+                              </View>
+                            ) : (
+                              <Text style={{ color: '#fff', fontWeight: '900', textAlign: 'center' }}>
+                                {tr('contactBuyer.accept', 'Accept')}
+                              </Text>
+                            )}
+                          </TouchableOpacity>
+                        </View>
                       </View>
                     )}
 
@@ -1613,25 +1801,79 @@ export const ContactBuyerScreen = () => {
               {/* Image Upload */}
               <TouchableOpacity
                 onPress={pickImage}
-                className="bg-green-50 rounded-xl h-48 items-center justify-center mb-4 border-2 border-dashed border-green-300 overflow-hidden"
-                activeOpacity={0.7}
+                activeOpacity={0.85}
+                style={{
+                  backgroundColor: '#F0FDF4',
+                  borderRadius: 20,
+                  height: 200,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginBottom: 20,
+                  borderWidth: 2,
+                  borderStyle: 'dashed',
+                  borderColor: '#86EFAC',
+                  overflow: 'hidden',
+                  shadowColor: '#22C55E',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: productImage ? 0 : 0.15,
+                  shadowRadius: 8,
+                  elevation: productImage ? 0 : 4,
+                }}
               >
                 {productImage ? (
-                  <Image
-                    source={{ uri: productImage }}
-                    className="w-full h-full"
-                    resizeMode="cover"
-                  />
+                  <View style={{ width: '100%', height: '100%', position: 'relative' }}>
+                    <Image
+                      source={{ uri: productImage }}
+                      style={{ width: '100%', height: '100%' }}
+                      resizeMode="cover"
+                    />
+                    {/* Edit Overlay */}
+                    <View
+                      style={{
+                        position: 'absolute',
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                        paddingVertical: 12,
+                        alignItems: 'center',
+                        flexDirection: 'row',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <ImagePlus size={20} color="#FFFFFF" strokeWidth={2.5} />
+                      <Text style={{ color: '#FFFFFF', fontWeight: '700', fontSize: 14, marginLeft: 8 }}>
+                        {tr('contactBuyer.tapToUpload', 'Tap to change')}
+                      </Text>
+                    </View>
+                  </View>
                 ) : (
-                  <>
-                    <Camera size={48} color="#16A34A" strokeWidth={2} />
-                    <Text className="text-green-700 font-semibold mt-3">
+                  <View style={{ alignItems: 'center' }}>
+                    <LinearGradient
+                      colors={['#22C55E', '#16A34A']}
+                      style={{
+                        width: 72,
+                        height: 72,
+                        borderRadius: 36,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        marginBottom: 16,
+                        shadowColor: '#22C55E',
+                        shadowOffset: { width: 0, height: 4 },
+                        shadowOpacity: 0.3,
+                        shadowRadius: 8,
+                        elevation: 6,
+                      }}
+                    >
+                      <ImagePlus size={36} color="#FFFFFF" strokeWidth={2.5} />
+                    </LinearGradient>
+                    <Text style={{ color: '#166534', fontWeight: '700', fontSize: 16, marginBottom: 6 }}>
                       {tr('contactBuyer.addPhoto', 'Add Product Photo')}
                     </Text>
-                    <Text className="text-green-600 text-sm mt-1">
+                    <Text style={{ color: '#16A34A', fontSize: 14 }}>
                       {tr('contactBuyer.tapToUpload', 'Tap to upload')}
                     </Text>
-                  </>
+                  </View>
                 )}
               </TouchableOpacity>
 
@@ -1708,26 +1950,130 @@ export const ContactBuyerScreen = () => {
               {/* Upload Button */}
               <TouchableOpacity
                 onPress={handleUploadProduct}
-                className="bg-green-600 rounded-xl py-4 items-center flex-row justify-center mt-2"
-                activeOpacity={0.7}
+                activeOpacity={0.85}
                 disabled={uploading}
-                style={{ opacity: uploading ? 0.6 : 1 }}
+                style={{ marginTop: 12, opacity: uploading ? 0.7 : 1 }}
               >
-                {uploading ? (
-                  <>
-                    <ActivityIndicator size="small" color="#fff" />
-                    <Text className="text-white text-lg font-bold ml-2">Uploading...</Text>
-                  </>
-                ) : (
-                  <>
-                    <Upload size={20} color="#fff" strokeWidth={2.5} />
-                    <Text className="text-white text-lg font-bold ml-2">
-                      {tr('contactBuyer.upload', 'Upload Product')}
-                    </Text>
-                  </>
-                )}
+                <LinearGradient
+                  colors={uploading ? ['#9CA3AF', '#6B7280'] : ['#22C55E', '#16A34A']}
+                  style={{
+                    borderRadius: 16,
+                    paddingVertical: 16,
+                    alignItems: 'center',
+                    flexDirection: 'row',
+                    justifyContent: 'center',
+                    shadowColor: uploading ? '#000' : '#22C55E',
+                    shadowOffset: { width: 0, height: 4 },
+                    shadowOpacity: uploading ? 0.15 : 0.3,
+                    shadowRadius: 8,
+                    elevation: uploading ? 2 : 6,
+                  }}
+                >
+                  {uploading ? (
+                    <>
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                      <Text style={{ color: '#FFFFFF', fontSize: 17, fontWeight: '800', marginLeft: 10 }}>
+                        {tr('contactBuyer.uploading', 'Uploading...')}
+                      </Text>
+                    </>
+                  ) : (
+                    <>
+                      <ShieldCheck size={22} color="#FFFFFF" strokeWidth={2.5} />
+                      <Text style={{ color: '#FFFFFF', fontSize: 17, fontWeight: '800', marginLeft: 10 }}>
+                        {tr('contactBuyer.upload', 'Upload Product')}
+                      </Text>
+                    </>
+                  )}
+                </LinearGradient>
               </TouchableOpacity>
             </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Counter Negotiation Modal */}
+      <Modal
+        visible={showCounterModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowCounterModal(false)}
+      >
+        <View className="flex-1 bg-black/50 justify-end">
+          <View className="bg-white rounded-t-3xl p-6" style={{ maxHeight: '80%' }}>
+            <View className="flex-row items-center justify-between mb-4">
+              <Text className="text-gray-900 text-2xl font-bold">
+                {tr('contactBuyer.negotiateBack', 'Negotiate back')}
+              </Text>
+              <TouchableOpacity
+                onPress={() => setShowCounterModal(false)}
+                className="bg-gray-200 rounded-full w-10 h-10 items-center justify-center"
+              >
+                <X size={20} color="#374151" strokeWidth={2} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={{ color: '#374151', fontSize: 14, fontWeight: '700', marginBottom: 10 }}>
+              {tr('contactBuyer.product', 'Product')}: {counterDeal?.productName || '-'} • {tr('contactBuyer.unit', 'Unit')}: {counterDeal?.unit || '-'}
+            </Text>
+
+            <Text style={{ color: '#374151', fontSize: 13, fontWeight: '700', marginBottom: 8 }}>
+              {tr('contactBuyer.quantity', 'Quantity')}
+            </Text>
+            <TextInput
+              value={counterQuantity}
+              onChangeText={setCounterQuantity}
+              keyboardType="numeric"
+              placeholder={tr('contactBuyer.enterQuantity', 'Enter quantity')}
+              placeholderTextColor="#9CA3AF"
+              style={{
+                backgroundColor: '#F3F4F6',
+                borderRadius: 12,
+                padding: 14,
+                fontSize: 15,
+                color: '#111827',
+                borderWidth: 1,
+                borderColor: '#E5E7EB',
+                marginBottom: 12,
+              }}
+            />
+
+            <Text style={{ color: '#374151', fontSize: 13, fontWeight: '700', marginBottom: 8 }}>
+              {tr('contactBuyer.pricePerUnit', 'Price (₹ per unit)')}
+            </Text>
+            <TextInput
+              value={counterPrice}
+              onChangeText={setCounterPrice}
+              keyboardType="numeric"
+              placeholder={tr('contactBuyer.enterPrice', 'Enter price')}
+              placeholderTextColor="#9CA3AF"
+              style={{
+                backgroundColor: '#F3F4F6',
+                borderRadius: 12,
+                padding: 14,
+                fontSize: 15,
+                color: '#111827',
+                borderWidth: 1,
+                borderColor: '#E5E7EB',
+                marginBottom: 16,
+              }}
+            />
+
+            <TouchableOpacity
+              onPress={submitCounterForDeal}
+              activeOpacity={0.85}
+              disabled={counterSubmitting}
+            >
+              <LinearGradient
+                colors={['#2563EB', '#1D4ED8']}
+                style={{ borderRadius: 14, paddingVertical: 14, alignItems: 'center' }}
+              >
+                <Text style={{ color: '#fff', fontSize: 15, fontWeight: '900' }}>
+                  {counterSubmitting
+                    ? tr('contactBuyer.sending', 'Sending...')
+                    : tr('contactBuyer.sendCounterOffer', 'Send counter offer')}
+                </Text>
+              </LinearGradient>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -1838,6 +2184,16 @@ export const ContactBuyerScreen = () => {
           </View>
         </View>
       </Modal>
+
+      {/* Custom Alert */}
+      <CustomAlert
+        visible={alertConfig.visible}
+        type={alertConfig.type}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        buttons={alertConfig.buttons}
+        onClose={hideAlert}
+      />
     </SafeAreaView>
   );
 };

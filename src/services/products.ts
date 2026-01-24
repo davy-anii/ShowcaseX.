@@ -144,6 +144,7 @@ export interface DealNotification {
 
 export type MarketDealKind = 'negotiation' | 'requestToBuy';
 export type MarketDealStatus = 'pending' | 'accepted' | 'rejected';
+export type MarketDealActor = 'buyer' | 'farmer';
 
 export interface MarketDeal {
   id: string;
@@ -173,6 +174,13 @@ export interface MarketDeal {
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
+
+const getSeenFlagsForActor = (actor: MarketDealActor) => {
+  if (actor === 'buyer') {
+    return { buyerSeen: true, farmerSeen: false };
+  }
+  return { buyerSeen: false, farmerSeen: true };
+};
 
 /**
  * Upload image to Firebase Storage
@@ -751,30 +759,57 @@ export const markBuyerDealSeen = async (dealId: string): Promise<void> => {
   await updateDoc(doc(db, 'marketDeals', dealId), { buyerSeen: true });
 };
 
-export const rejectMarketDeal = async (dealId: string): Promise<void> => {
-  await updateDoc(doc(db, 'marketDeals', dealId), {
-    status: 'rejected',
-    buyerSeen: false,
-    farmerSeen: true,
+export const counterMarketDeal = async (input: {
+  dealId: string;
+  actor: MarketDealActor;
+  offerQuantity: number;
+  offerPrice: number;
+}): Promise<void> => {
+  const q = Number(input.offerQuantity);
+  const p = Number(input.offerPrice);
+  if (!Number.isFinite(q) || q <= 0 || !Number.isFinite(p) || p <= 0) {
+    throw new Error('Enter valid quantity and price');
+  }
+
+  await updateDoc(doc(db, 'marketDeals', input.dealId), {
+    status: 'pending',
+    offerQuantity: q,
+    offerPrice: p,
+    ...getSeenFlagsForActor(input.actor),
     updatedAt: Timestamp.now(),
   });
 };
 
-export const acceptMarketDeal = async (deal: MarketDeal): Promise<void> => {
+export const rejectMarketDeal = async (
+  dealId: string,
+  actor: MarketDealActor = 'farmer'
+): Promise<void> => {
+  await updateDoc(doc(db, 'marketDeals', dealId), {
+    status: 'rejected',
+    ...getSeenFlagsForActor(actor),
+    updatedAt: Timestamp.now(),
+  });
+};
+
+export const acceptMarketDeal = async (
+  deal: MarketDeal,
+  actor: MarketDealActor = 'farmer'
+): Promise<void> => {
   const now = Timestamp.now();
   const batch = writeBatch(db);
 
   // Always update the deal status.
   batch.update(doc(db, 'marketDeals', deal.id), {
     status: 'accepted',
-    buyerSeen: false,
-    farmerSeen: true,
+    ...getSeenFlagsForActor(actor),
     updatedAt: now,
   });
 
-  // For both negotiation and requestToBuy, remove the product from listings
-  // since the farmer has accepted to sell the product
-  batch.delete(doc(db, 'products', deal.productId));
+  // Only the farmer can remove the product from listings (Firestore rules restrict deletes
+  // to the product owner). When the buyer accepts, we just mark the deal accepted.
+  if (actor === 'farmer') {
+    batch.delete(doc(db, 'products', deal.productId));
+  }
 
   await batch.commit();
 };
