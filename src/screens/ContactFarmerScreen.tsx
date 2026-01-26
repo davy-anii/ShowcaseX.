@@ -1222,28 +1222,6 @@ export const ContactFarmerScreen = () => {
                               <Text style={{ color: '#fff', fontSize: 14, fontWeight: '800', marginLeft: 10 }}>{tr('contactFarmer.call', 'Call')}</Text>
                             </LinearGradient>
                           </TouchableOpacity>
-
-                          <TouchableOpacity
-                            onPress={() => handleChat(farmer.farmerName, farmer.phone)}
-                            activeOpacity={0.8}
-                            style={{ flex: 1 }}
-                          >
-                            <LinearGradient
-                              colors={['#3B82F6', '#2563EB']}
-                              start={{ x: 0, y: 0 }}
-                              end={{ x: 1, y: 1 }}
-                              style={{
-                                borderRadius: 14,
-                                paddingVertical: 14,
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                              }}
-                            >
-                              <MessageCircle size={18} color="#fff" strokeWidth={2.5} />
-                              <Text style={{ color: '#fff', fontSize: 14, fontWeight: '800', marginLeft: 10 }}>{tr('contactFarmer.chat', 'Chat')}</Text>
-                            </LinearGradient>
-                          </TouchableOpacity>
                         </View>
                       </View>
                     </LinearGradient>
@@ -1491,40 +1469,6 @@ export const ContactFarmerScreen = () => {
                           marginLeft: 10,
                         }}>
                           {tr('contactFarmer.call', 'Call')} - {farmer.phone}
-                        </Text>
-                      </LinearGradient>
-                    </TouchableOpacity>
-
-                    {/* Chat Button */}
-                    <TouchableOpacity
-                      onPress={() => handleChat(farmer.farmerName, farmer.phone)}
-                      activeOpacity={0.8}
-                    >
-                      <LinearGradient
-                        colors={['#3B82F6', '#2563EB']}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                        style={{
-                          borderRadius: 14,
-                          paddingVertical: 14,
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          shadowColor: '#3B82F6',
-                          shadowOffset: { width: 0, height: 3 },
-                          shadowOpacity: 0.3,
-                          shadowRadius: 6,
-                          elevation: 4,
-                        }}
-                      >
-                        <MessageCircle size={18} color="#fff" strokeWidth={2.5} />
-                        <Text style={{
-                          color: '#fff',
-                          fontSize: 15,
-                          fontWeight: '700',
-                          marginLeft: 10,
-                        }}>
-                          {tr('contactFarmer.chat', 'Chat in App')}
                         </Text>
                       </LinearGradient>
                     </TouchableOpacity>

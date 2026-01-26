@@ -227,6 +227,18 @@
       "update3Title": "Organic wheat harvest completed",
       "update3Description": "Premium quality organic wheat available at competitive prices.",
       "update3Region": "Haryana"
+    },
+    "news": {
+      "title": "Latest Agricultural News",
+      "refresh": "Refresh",
+      "loading": "Loading latest news...",
+      "empty": "No news available",
+      "retry": "Retry",
+      "article": "News",
+      "readMore": "Read More",
+      "fullArticle": "Full Article",
+      "source": "Source",
+      "summary": "Summary"
     }
   },
   "buyerDrawer": {
@@ -516,8 +528,8 @@
   },
   "signIn": {
     "signInTitle": "Sign In",
-    "farmerTitle": "Farmer Sign In",
-    "buyerTitle": "Buyer Sign In",
+    "farmerTitle": "Sign In",
+    "buyerTitle": "Sign In",
     "title": "Welcome Back",
     "subtitle": "Sign in to continue",
     "phoneMethod": "Phone",

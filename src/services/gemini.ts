@@ -747,21 +747,35 @@ IMPORTANT:
 - Respond as STRICT JSON only (no markdown, no extra text, no code blocks).
 - The user provided a ${fileTypeText}.
 
+ALLOWED DOCUMENT TYPES TO ANALYZE:
+You MUST ONLY analyze documents that fall into these categories:
+1. **Farming & Agriculture Related**: Fertilizer invoices, seed purchase receipts, pesticide bills, machinery invoices, harvest records, crop insurance documents, agricultural loan documents, farming contracts
+2. **Weather & Climate Related**: Weather forecasts, rainfall records, temperature data, seasonal reports, climate advisories
+3. **Environment Related**: Soil test reports, water quality reports, environmental compliance documents, land quality assessments
+4. **Bank Related**: Loan notices, KCC (Kisan Credit Card) documents, bank statements, loan disbursement letters, agricultural credit documents, bank account statements, mortgage documents
+5. **Government Scheme Related**: Subsidy letters, government aid documents, scheme registration papers, government notification letters, compensation letters, crop subsidy documents, pension scheme documents
+
+If the document does NOT fall into any of the above categories, you MUST reject the analysis and return the rejection message in JSON format.
+
 Your job:
-1) Carefully read and identify what the document is (e.g., loan notice, KCC, land record, insurance policy, mandi receipt, government scheme letter, fertilizer invoice, soil test report, subsidy letter, lease agreement, etc.).
-2) Extract ALL important details farmers care about: dates, amounts, deadlines, reference numbers, names, crop/land details, bank/office names, account numbers, and any required steps.
-3) List EVERY key point separately - do not miss any important information.
-4) Give clear, practical next steps that help the farmer.
+1) First, identify what the document is and CHECK if it belongs to the allowed categories above.
+2) If the document is NOT in the allowed categories, return JSON with a rejection message.
+3) If the document IS in the allowed categories:
+   - Carefully read and extract ALL important details farmers care about: dates, amounts, deadlines, reference numbers, names, crop/land details, bank/office names, account numbers, and any required steps.
+   - List EVERY key point separately - do not miss any important information.
+   - Give clear, practical next steps that help the farmer.
 
 Return JSON exactly in this shape:
 {
-  "summary": "One comprehensive paragraph (8-12 sentences) in ${languageName} that explains the entire document in simple terms for a farmer. Include document type, issuing authority, purpose, and all critical information.",
-  "keyPoints": ["List EVERY important detail as separate points. Include: document type, dates, amounts, reference numbers, names, deadlines, requirements, and specific terms. Aim for 5-10 points depending on document complexity. Each point should be clear and specific in ${languageName}."],
-  "actionRequired": "Clear, step-by-step actions the farmer should take (with specific deadlines if present). If no action needed, say 'Keep this document safe for your records' in ${languageName}."
+  "summary": "One comprehensive paragraph in ${languageName}. If the document is NOT allowed: 'This document is not related to farming, weather, environment, banking, or government schemes. This analyzer only provides analysis for agriculture-related documents, weather records, environmental reports, bank documents, and government scheme documents.' If document IS allowed: explain the entire document in simple terms for a farmer. Include document type, issuing authority, purpose, and all critical information.",
+  "keyPoints": ["If NOT allowed: 'This analyzer only analyzes documents related to: Farming & Agriculture, Weather & Climate, Environment, Bank Services, and Government Schemes.' If allowed: List EVERY important detail as separate points. Include: document type, dates, amounts, reference numbers, names, deadlines, requirements, and specific terms. Aim for 5-10 points."],
+  "actionRequired": "If NOT allowed: 'Please upload documents related to farming, weather, environment, bank services, or government schemes for analysis.' If allowed: Clear, step-by-step actions the farmer should take."
 }
 
 CRITICAL RULES:
-- Extract EVERY piece of important information - do not summarize or skip details
+- FIRST validate if the document is in the allowed categories
+- If document is NOT allowed, clearly state this in the JSON response
+- If document IS allowed, extract EVERY piece of important information - do not summarize or skip details
 - Each keyPoint should be a distinct, specific piece of information
 - Include ALL dates, amounts, reference numbers, and names found in the document
 - If the document is unclear or illegible, still return valid JSON and ask for a clearer copy
@@ -819,11 +833,18 @@ CRITICAL RULES:
     const raw = jsonMatch ? jsonMatch[0] : cleanText;
     const parsed = JSON.parse(raw);
 
+    // Check if this is a rejection response (document not allowed)
+    const summary = typeof parsed?.summary === 'string' ? parsed.summary.trim() : '';
+    const isRejection = summary.includes('not related to') || 
+                       summary.includes('only analyzes') || 
+                       summary.includes('not allowed') ||
+                       summary.includes('only provides analysis');
+
     // Validate and return with proper defaults
     return {
       summary:
-        typeof parsed?.summary === 'string' && parsed.summary.trim().length > 0
-          ? parsed.summary.trim()
+        summary.length > 0
+          ? summary
           : 'Unable to extract summary from the document. Please ensure the document is clear and readable.',
       keyPoints: Array.isArray(parsed?.keyPoints) && parsed.keyPoints.length > 0
         ? parsed.keyPoints.map((x: unknown) => String(x).trim()).filter(Boolean)

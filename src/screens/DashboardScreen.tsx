@@ -601,7 +601,7 @@ export const DashboardScreen = () => {
                     >
                       <Droplets size={22} color="#2563EB" strokeWidth={2.5} />
                     </LinearGradient>
-                    <Text style={{
+                  <Text style={{
                       fontSize: 10,
                       fontWeight: '600',
                       color: '#64748B',

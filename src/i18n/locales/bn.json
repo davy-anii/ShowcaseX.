@@ -22,7 +22,7 @@
   "landing": {
     "signIn": "সাইন ইন",
     "signInDescription": "ইতিমধ্যে একটি অ্যাকাউন্ট আছে? এখানে সাইন ইন করুন",
-    "signUp": "সাইন আপ",
+    "signUp": "সাইনআপ",
     "signUpDescription": "শুরু করতে একটি নতুন অ্যাকাউন্ট তৈরি করুন",
     "footerNote": "কৃষকসারথিতে স্বাগতম"
   },
@@ -227,6 +227,18 @@
       "update3Title": "জৈব গম ফসল কাটা সম্পন্ন",
       "update3Description": "প্রতিযোগিতামূলক মূল্যে প্রিমিয়াম মানের জৈব গম উপলব্ধ।",
       "update3Region": "হরিয়ানা"
+    },
+    "news": {
+      "title": "সর্বশেষ কৃষি সংবাদ",
+      "refresh": "রিফ্রেশ",
+      "loading": "সর্বশেষ সংবাদ লোড হচ্ছে...",
+      "empty": "কোনো সংবাদ পাওয়া যায়নি",
+      "retry": "আবার চেষ্টা করুন",
+      "article": "সংবাদ",
+      "readMore": "আরও পড়ুন",
+      "fullArticle": "সম্পূর্ণ নিবন্ধ",
+      "source": "সূত্র",
+      "summary": "সারাংশ"
     }
   },
   "news": {
@@ -535,8 +547,8 @@
   },
   "signIn": {
     "signInTitle": "সাইন ইন",
-    "farmerTitle": "কৃষক সাইন ইন",
-    "buyerTitle": "ক্রেতা সাইন ইন",
+    "farmerTitle": "সাইন ইন",
+    "buyerTitle": "সাইন ইন",
     "title": "স্বাগতম",
     "subtitle": "চালিয়ে যেতে সাইন ইন করুন",
     "phoneMethod": "ফোন",
@@ -923,7 +935,7 @@
     "resultLanguage": "ফলাফল ভাষা",
     "resultLanguagePlaceholder": "ভাষা নির্বাচন করুন",
     "selectLanguage": "ভাষা নির্বাচন করুন",
-    "summary": "নথির সারাংশ",
+    "summary": "সারাংশ",
     "keyPoints": "মূল বিষয়",
     "reanalyze": "পুনরায় বিশ্লেষণ করুন",
     "listen": "শুনুন",

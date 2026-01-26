@@ -36,6 +36,7 @@ import {
 } from 'lucide-react-native';
 import BackButton from '@/components/BackButton';
 import { CustomAlert } from '@/components/CustomAlert';
+import MovingBackgroundCircle from '@/components/MovingBackgroundCircle';
 import { useTranslation } from 'react-i18next';
 import { localizeNumber } from '../utils/numberLocalization';
 import { useNavigation } from '@react-navigation/native';
@@ -71,6 +72,7 @@ type ContactBuyerNavigationProp = NativeStackNavigationProp<
 
 interface BuyerContact {
   id: string;
+  buyerId?: string;
   name: string;
   phone: string;
   email: string;
@@ -475,11 +477,32 @@ export const ContactBuyerScreen = () => {
     });
   };
 
-  const handleChat = (buyerName: string, buyerPhone: string) => {
+  const handleChat = (buyerName: string, buyerPhone: string, buyerId?: string) => {
+    const user = auth.currentUser;
+    if (!user) {
+      Alert.alert('Error', 'Please sign in to chat');
+      return;
+    }
+    
+    if (!buyerId) {
+      // Fallback for backward compatibility
+      navigation.navigate('Chat', {
+        contactName: buyerName,
+        contactPhone: buyerPhone,
+        userType: 'farmer',
+      });
+      return;
+    }
+
+    // Navigate with buyer ID for proper chat thread creation
     navigation.navigate('Chat', {
       contactName: buyerName,
       contactPhone: buyerPhone,
       userType: 'farmer',
+      buyerId: buyerId,
+      buyerName: buyerName,
+      farmerId: user.uid,
+      farmerName: user.displayName || 'Farmer',
     });
   };
 
@@ -861,7 +884,13 @@ export const ContactBuyerScreen = () => {
   }, [acceptedDeals.length]);
 
   return (
-    <SafeAreaView className="flex-1" style={{ backgroundColor: '#FFFFFF' }}>
+    <SafeAreaView className="flex-1" style={{ backgroundColor: '#F0FDF4' }}>
+      {/* Moving Background Circles */}
+      <View style={{ position: 'absolute', width: '100%', height: '100%' }} pointerEvents="none">
+        <MovingBackgroundCircle size={180} speed={8} color="#22C55E" opacity={0.08} />
+        <MovingBackgroundCircle size={140} speed={6} color="#10B981" opacity={0.06} />
+        <MovingBackgroundCircle size={200} speed={5} color="#34D399" opacity={0.05} />
+      </View>
       <ScrollView
         className="flex-1"
         contentContainerStyle={{ paddingBottom: 60 }}
@@ -869,40 +898,35 @@ export const ContactBuyerScreen = () => {
       >
         {/* Header with Gradient */}
         <LinearGradient
-          colors={['#10B981', '#059669', '#047857']}
+          colors={['#059669', '#047857', '#065F46']}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={{
-            paddingHorizontal: 24,
-            paddingTop: 48,
-            paddingBottom: 32,
-            borderBottomLeftRadius: 32,
-            borderBottomRightRadius: 32,
-            shadowColor: '#10B981',
-            shadowOffset: { width: 0, height: 8 },
-            shadowOpacity: 0.3,
-            shadowRadius: 16,
-            elevation: 10,
+            paddingHorizontal: 20,
+            paddingTop: 40,
+            paddingBottom: 24,
+            borderBottomLeftRadius: 28,
+            borderBottomRightRadius: 28,
           }}
         >
-          <View style={{ marginBottom: 20 }}>
+          <View style={{ marginBottom: 16 }}>
             <BackButton />
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            <View style={{ flex: 1 }}>
+            <View style={{ flex: 1, marginRight: 12 }}>
               <Text style={{
                 color: '#fff',
-                fontSize: 32,
+                fontSize: 22,
                 fontWeight: '800',
-                letterSpacing: -0.5,
+                letterSpacing: -0.3,
               }}>
                 {tr('contactBuyer.title', 'Contact Buyer')}
               </Text>
               <Text style={{
-                color: 'rgba(255, 255, 255, 0.9)',
-                fontSize: 15,
+                color: 'rgba(255, 255, 255, 0.85)',
+                fontSize: 13,
                 fontWeight: '500',
-                marginTop: 8,
+                marginTop: 4,
               }}>
                 {tr('contactBuyer.subtitle', 'Connect with interested buyers')}
               </Text>
@@ -910,25 +934,19 @@ export const ContactBuyerScreen = () => {
             <TouchableOpacity
               onPress={openNotifications}
               activeOpacity={0.85}
-              style={{ position: 'relative' }}
+              style={{
+                position: 'relative',
+                backgroundColor: 'rgba(255, 255, 255, 0.25)',
+                borderRadius: 24,
+                width: 48,
+                height: 48,
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderWidth: 1.5,
+                borderColor: 'rgba(255, 255, 255, 0.5)',
+              }}
             >
-              <LinearGradient
-                colors={['#F97316', '#EA580C']}
-                style={{
-                  borderRadius: 30,
-                  width: 56,
-                  height: 56,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  shadowColor: '#F97316',
-                  shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: 0.4,
-                  shadowRadius: 8,
-                  elevation: 6,
-                }}
-              >
-                <Bell size={26} color="#fff" strokeWidth={2.5} />
-              </LinearGradient>
+              <Bell size={22} color="#fff" strokeWidth={2.5} />
               {notifications > 0 && (
                 <View
                   style={{
@@ -936,23 +954,24 @@ export const ContactBuyerScreen = () => {
                     top: -4,
                     right: -4,
                     backgroundColor: '#EF4444',
-                    borderRadius: 12,
-                    width: 24,
-                    height: 24,
+                    borderRadius: 10,
+                    minWidth: 20,
+                    height: 20,
                     alignItems: 'center',
                     justifyContent: 'center',
                     borderWidth: 2,
                     borderColor: '#fff',
+                    paddingHorizontal: 4,
                   }}
                 >
                   <Text
                     style={{
                       color: '#fff',
-                      fontSize: 11,
+                      fontSize: 10,
                       fontWeight: '800',
                     }}
                   >
-                    {notifications}
+                    {notifications > 99 ? '99+' : notifications}
                   </Text>
                 </View>
               )}
@@ -1202,18 +1221,48 @@ export const ContactBuyerScreen = () => {
                       padding: 16,
                       borderWidth: 1,
                       borderColor: '#10B981',
+                      marginHorizontal: 4,
                     }}
                   >
-                    <Text style={{ color: '#111827', fontSize: 16, fontWeight: '800' }}>
+                    <Text 
+                      style={{ color: '#111827', fontSize: 16, fontWeight: '800' }}
+                      numberOfLines={1}
+                      ellipsizeMode="tail"
+                    >
                       {deal.productName}
                     </Text>
-                    <Text style={{ color: '#374151', marginTop: 8, fontWeight: '700' }}>
-                      {tr('contactBuyer.buyer', 'Buyer')}: {deal.buyerName} • {localizeNumber(deal.buyerPhone, i18n.language)}
+                    <Text 
+                      style={{ color: '#374151', marginTop: 8, fontWeight: '700', fontSize: 13 }}
+                      numberOfLines={2}
+                      ellipsizeMode="tail"
+                    >
+                      {tr('contactBuyer.buyer', 'Buyer')}: {deal.buyerName}
                       {deal.buyerLocation ? ` • ${deal.buyerLocation}` : ''}
                     </Text>
-                    <Text style={{ color: '#374151', marginTop: 6 }}>
-                      {deal.kind === 'negotiation' ? tr('contactBuyer.negotiation', 'Negotiation') : tr('contactBuyer.requestToBuy', 'Request to Buy')} • {tr('contactBuyer.qty', 'Qty')}: {localizeNumber(deal.offerQuantity, i18n.language)} {deal.unit} • {tr('contactBuyer.price', 'Price')}: ₹{localizeNumber(deal.offerPrice, i18n.language)}
+                    <Text 
+                      style={{ color: '#6B7280', marginTop: 2, fontSize: 12 }}
+                      numberOfLines={1}
+                    >
+                      {localizeNumber(deal.buyerPhone, i18n.language)}
                     </Text>
+                    <View style={{ 
+                      flexDirection: 'row', 
+                      flexWrap: 'wrap',
+                      marginTop: 8,
+                      backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                      borderRadius: 8,
+                      padding: 8,
+                    }}>
+                      <Text style={{ color: '#059669', fontSize: 12, fontWeight: '600' }}>
+                        {deal.kind === 'negotiation' ? tr('contactBuyer.negotiation', 'Negotiation') : tr('contactBuyer.requestToBuy', 'Request')}
+                      </Text>
+                      <Text style={{ color: '#374151', fontSize: 12, marginLeft: 8 }}>
+                        {tr('contactBuyer.qty', 'Qty')}: {localizeNumber(deal.offerQuantity, i18n.language)} {deal.unit}
+                      </Text>
+                      <Text style={{ color: '#374151', fontSize: 12, marginLeft: 8 }}>
+                        ₹{localizeNumber(deal.offerPrice, i18n.language)}
+                      </Text>
+                    </View>
 
                     <View style={{ flexDirection: 'row', marginTop: 14 }}>
                       <TouchableOpacity

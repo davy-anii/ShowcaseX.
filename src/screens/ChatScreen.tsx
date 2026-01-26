@@ -29,6 +29,7 @@ import {
   sendChatMessage,
   sendChatLocationMessage,
   subscribeToChatMessages,
+  sendChatNotificationToFarmer,
 } from '../services/chat';
 import { detectCurrentLocation } from '../services/location';
 
@@ -139,6 +140,19 @@ export const ChatScreen = () => {
           return;
         }
         setThreadId(res.thread.id);
+        
+        // If buyer initiated chat with farmer, send notification to farmer
+        if (userType === 'buyer' && user.uid === buyerId && farmerId) {
+          sendChatNotificationToFarmer({
+            farmerId: farmerId,
+            buyerId: user.uid,
+            buyerName: buyerName || 'A Buyer',
+            threadId: res.thread.id,
+          }).catch((e) => {
+            console.warn('Failed to send chat notification:', e);
+            // Don't alert user - notification failure is not critical
+          });
+        }
       })
       .finally(() => {
         if (!cancelled) setLoadingThread(false);
@@ -147,7 +161,7 @@ export const ChatScreen = () => {
     return () => {
       cancelled = true;
     };
-  }, [buyerId, farmerId, buyerName, farmerName, dealId, authReady]);
+  }, [buyerId, farmerId, buyerName, farmerName, dealId, authReady, userType]);
 
   useEffect(() => {
     if (!threadId) return;

@@ -1,88 +1,77 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React from 'react';
 import { View, StyleProp, ViewStyle } from 'react-native';
-import { SvgUri } from 'react-native-svg';
-import { Asset } from 'expo-asset';
+import {
+  Sun,
+  Moon,
+  Cloud,
+  CloudSun,
+  CloudMoon,
+  CloudRain,
+  CloudDrizzle,
+  CloudSnow,
+  Snowflake,
+  CloudLightning,
+  CloudFog,
+} from 'lucide-react-native';
 import type { WeatherIllustrationKey } from '../services/weather';
-
-const WEATHER_SVGS: Record<WeatherIllustrationKey, number> = {
-  'cloudy-day-1': require('../../public/assets/weather/cloudy-day-1.svg'),
-  'cloudy-day-2': require('../../public/assets/weather/cloudy-day-2.svg'),
-  'cloudy-day-3': require('../../public/assets/weather/cloudy-day-3.svg'),
-  'cloudy-night-1': require('../../public/assets/weather/cloudy-night-1.svg'),
-  'cloudy-night-2': require('../../public/assets/weather/cloudy-night-2.svg'),
-  'cloudy-night-3': require('../../public/assets/weather/cloudy-night-3.svg'),
-  cloudy: require('../../public/assets/weather/cloudy.svg'),
-  day: require('../../public/assets/weather/day.svg'),
-  night: require('../../public/assets/weather/night.svg'),
-  'rainy-1': require('../../public/assets/weather/rainy-1.svg'),
-  'rainy-2': require('../../public/assets/weather/rainy-2.svg'),
-  'rainy-3': require('../../public/assets/weather/rainy-3.svg'),
-  'rainy-4': require('../../public/assets/weather/rainy-4.svg'),
-  'rainy-5': require('../../public/assets/weather/rainy-5.svg'),
-  'rainy-6': require('../../public/assets/weather/rainy-6.svg'),
-  'rainy-7': require('../../public/assets/weather/rainy-7.svg'),
-  'snowy-1': require('../../public/assets/weather/snowy-1.svg'),
-  'snowy-2': require('../../public/assets/weather/snowy-2.svg'),
-  'snowy-3': require('../../public/assets/weather/snowy-3.svg'),
-  'snowy-4': require('../../public/assets/weather/snowy-4.svg'),
-  'snowy-5': require('../../public/assets/weather/snowy-5.svg'),
-  'snowy-6': require('../../public/assets/weather/snowy-6.svg'),
-  thunder: require('../../public/assets/weather/thunder.svg'),
-};
 
 type Props = {
   iconKey: WeatherIllustrationKey;
   size?: number;
   style?: StyleProp<ViewStyle>;
+  color?: string;
 };
 
-export function WeatherIcon({ iconKey, size = 56, style }: Props) {
-  const moduleId = WEATHER_SVGS[iconKey];
+// Map weather keys to Lucide icons and their colors
+const getWeatherIcon = (iconKey: WeatherIllustrationKey, size: number, color?: string) => {
+  const iconProps = {
+    size: size * 0.85,
+    strokeWidth: 1.5,
+  };
 
-  const asset = useMemo(() => Asset.fromModule(moduleId), [moduleId]);
-  const [uri, setUri] = useState<string | null>(asset.localUri || asset.uri || null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    (async () => {
-      try {
-        if (!asset.localUri) {
-          await asset.downloadAsync();
-        }
-        if (!cancelled) {
-          setUri(asset.localUri || asset.uri || null);
-        }
-      } catch {
-        if (!cancelled) {
-          setUri(asset.uri || null);
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [asset]);
-
-  if (!uri) {
-    return <View style={[{ width: size, height: size }, style]} />;
+  switch (iconKey) {
+    case 'day':
+      return <Sun {...iconProps} color={color || '#F59E0B'} />;
+    case 'night':
+      return <Moon {...iconProps} color={color || '#6366F1'} />;
+    case 'cloudy':
+      return <Cloud {...iconProps} color={color || '#64748B'} />;
+    case 'cloudy-day-1':
+    case 'cloudy-day-2':
+    case 'cloudy-day-3':
+      return <CloudSun {...iconProps} color={color || '#F59E0B'} />;
+    case 'cloudy-night-1':
+    case 'cloudy-night-2':
+    case 'cloudy-night-3':
+      return <CloudMoon {...iconProps} color={color || '#6366F1'} />;
+    case 'rainy-1':
+    case 'rainy-2':
+    case 'rainy-3':
+      return <CloudDrizzle {...iconProps} color={color || '#3B82F6'} />;
+    case 'rainy-4':
+    case 'rainy-5':
+    case 'rainy-6':
+    case 'rainy-7':
+      return <CloudRain {...iconProps} color={color || '#2563EB'} />;
+    case 'snowy-1':
+    case 'snowy-2':
+    case 'snowy-3':
+      return <Snowflake {...iconProps} color={color || '#93C5FD'} />;
+    case 'snowy-4':
+    case 'snowy-5':
+    case 'snowy-6':
+      return <CloudSnow {...iconProps} color={color || '#60A5FA'} />;
+    case 'thunder':
+      return <CloudLightning {...iconProps} color={color || '#FBBF24'} />;
+    default:
+      return <CloudFog {...iconProps} color={color || '#9CA3AF'} />;
   }
+};
 
-  // "Think out of the box": User requested to use "vertical center and in the top x and y both center"
-  // and avoid manual offsets. The SVGs have some internal padding, so we scale them up 
-  // uniformly to fill the container, but we rely on standard Flexbox alignment (justify/align center)
-  // to position the SVG in the View.
-
-  const scale = 1.5;
-
+export function WeatherIcon({ iconKey, size = 56, style, color }: Props) {
   return (
     <View style={[{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }, style]}>
-      <SvgUri
-        uri={uri}
-        width={size * scale}
-        height={size * scale}
-      />
+      {getWeatherIcon(iconKey, size, color)}
     </View>
   );
 }

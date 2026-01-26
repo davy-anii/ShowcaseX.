@@ -306,12 +306,44 @@ export const CropPredictionScreen = () => {
       // Delocalize growing period for API call
       const durationDays = computeDurationDays(formData.plantingDate, formData.harvestDate);
 
+      // Get multilingual crop name translations
+      const getCropNameI18n = (cropValue: string): Record<string, string> => {
+        // Map of crop translation keys
+        const cropKeyMap: Record<string, string> = {
+          'rice': 'prediction.cropTypes.rice',
+          'wheat': 'prediction.cropTypes.wheat',
+          'cotton': 'prediction.cropTypes.cotton',
+          'sugarcane': 'prediction.cropTypes.sugarcane',
+          'corn': 'prediction.cropTypes.corn',
+          'potato': 'prediction.cropTypes.potato',
+          'tomato': 'prediction.cropTypes.tomato',
+          'onion': 'prediction.cropTypes.onion',
+          'other': 'prediction.other',
+        };
+
+        const translationKey = cropKeyMap[cropValue];
+        
+        if (!translationKey) {
+          // For custom crop types, return the custom value for all languages
+          return { en: cropValue, hi: cropValue, bn: cropValue };
+        }
+
+        // Get translations for all supported languages
+        return {
+          en: i18n.t(translationKey, { lng: 'en' }),
+          hi: i18n.t(translationKey, { lng: 'hi' }),
+          bn: i18n.t(translationKey, { lng: 'bn' }),
+        };
+      };
+
+      const cropNameI18n = getCropNameI18n(formData.cropType);
+
       // Store only the essential schedule values for reminders/task feed.
       // This is best-effort and should not block predictions.
       try {
         await upsertFarmingPlanForCurrentUser({
           cropType: formData.cropType,
-          cropName: formData.cropType,
+          cropName: cropNameI18n[i18n.language] || cropNameI18n.en || formData.cropType,
           areaAcres: Number(delocalizedAcres),
           plantingDate: delocalizeNumber(formData.plantingDate, i18n.language),
           expectedHarvestDate: delocalizeNumber(formData.harvestDate, i18n.language),

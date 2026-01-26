@@ -394,11 +394,8 @@ export const BuyerDashboardScreen = () => {
               style={{
                 borderRadius: 24,
                 padding: 24,
-                shadowColor: '#0EA5E9',
-                shadowOffset: { width: 0, height: 6 },
-                shadowOpacity: 0.12,
-                shadowRadius: 16,
-                elevation: 5,
+                borderWidth: 1,
+                borderColor: '#E0F2FE',
                 minHeight: 200,
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -417,11 +414,8 @@ export const BuyerDashboardScreen = () => {
               style={{
                 borderRadius: 24,
                 padding: 24,
-                shadowColor: '#EF4444',
-                shadowOffset: { width: 0, height: 6 },
-                shadowOpacity: 0.10,
-                shadowRadius: 16,
-                elevation: 5,
+                borderWidth: 1,
+                borderColor: '#FECACA',
                 minHeight: 200,
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -437,11 +431,6 @@ export const BuyerDashboardScreen = () => {
                   borderRadius: 20,
                   paddingVertical: 12,
                   paddingHorizontal: 24,
-                  shadowColor: '#16A34A',
-                  shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: 0.2,
-                  shadowRadius: 8,
-                  elevation: 4,
                 }}
               >
                 <Text style={{ color: '#FFFFFF', fontWeight: '600' }}>
@@ -460,11 +449,6 @@ export const BuyerDashboardScreen = () => {
                   padding: 20,
                   borderWidth: 1,
                   borderColor: '#BFDBFE',
-                  shadowColor: '#64748B',
-                  shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: 0.08,
-                  shadowRadius: 12,
-                  elevation: 4,
                 }}
               >
                 {/* Main Weather Icon and Condition */}
